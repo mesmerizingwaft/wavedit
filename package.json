@@ -22,6 +22,8 @@
     "eslint-plugin-react-hooks": "latest",
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
-    "typescript-eslint": "latest"
+    "typescript-eslint": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
   }
 }
