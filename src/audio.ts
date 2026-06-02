@@ -1,3 +1,11 @@
+export type AudioEffects = {
+  volume: number
+  lowpassEnabled: boolean
+  lowpassFrequency: number
+  reverbEnabled: boolean
+  reverbMix: number
+}
+
 export function formatTime(seconds: number, compact = false) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0
   const minutes = Math.floor(safeSeconds / 60)
@@ -12,10 +20,58 @@ export function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function createClippedWav(buffer: AudioBuffer, start: number, end: number) {
-  const startFrame = Math.max(0, Math.floor(start * buffer.sampleRate))
-  const endFrame = Math.min(buffer.length, Math.ceil(end * buffer.sampleRate))
-  const frameCount = Math.max(0, endFrame - startFrame)
+export function createReverbImpulse(context: BaseAudioContext, duration = 1.8, decay = 2.4) {
+  const length = Math.ceil(context.sampleRate * duration)
+  const impulse = context.createBuffer(2, length, context.sampleRate)
+  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
+    const samples = impulse.getChannelData(channel)
+    for (let index = 0; index < length; index += 1) {
+      samples[index] = (Math.random() * 2 - 1) * Math.pow(1 - index / length, decay)
+    }
+  }
+  return impulse
+}
+
+export function connectEffects(
+  context: BaseAudioContext,
+  source: AudioNode,
+  destination: AudioNode,
+  effects: AudioEffects,
+) {
+  const gain = context.createGain()
+  gain.gain.value = effects.volume
+  source.connect(gain)
+
+  let tail: AudioNode = gain
+  if (effects.lowpassEnabled) {
+    const lowpass = context.createBiquadFilter()
+    lowpass.type = 'lowpass'
+    lowpass.frequency.value = effects.lowpassFrequency
+    lowpass.Q.value = 0.7
+    tail.connect(lowpass)
+    tail = lowpass
+  }
+
+  if (!effects.reverbEnabled) {
+    tail.connect(destination)
+    return
+  }
+
+  const dry = context.createGain()
+  const wet = context.createGain()
+  const convolver = context.createConvolver()
+  dry.gain.value = 1 - effects.reverbMix
+  wet.gain.value = effects.reverbMix
+  convolver.buffer = createReverbImpulse(context)
+  tail.connect(dry)
+  tail.connect(convolver)
+  convolver.connect(wet)
+  dry.connect(destination)
+  wet.connect(destination)
+}
+
+export function encodeWav(buffer: AudioBuffer) {
+  const frameCount = buffer.length
   const channels = buffer.numberOfChannels
   const bytesPerSample = 2
   const dataLength = frameCount * channels * bytesPerSample
@@ -41,7 +97,7 @@ export function createClippedWav(buffer: AudioBuffer, start: number, end: number
   view.setUint32(40, dataLength, true)
 
   let offset = 44
-  for (let frame = startFrame; frame < endFrame; frame += 1) {
+  for (let frame = 0; frame < frameCount; frame += 1) {
     for (let channel = 0; channel < channels; channel += 1) {
       const value = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[frame]))
       view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true)
@@ -50,4 +106,16 @@ export function createClippedWav(buffer: AudioBuffer, start: number, end: number
   }
 
   return new Blob([wav], { type: 'audio/wav' })
+}
+
+export async function createProcessedWav(buffer: AudioBuffer, start: number, end: number, effects: AudioEffects) {
+  const clipDuration = Math.max(0, end - start)
+  const reverbTail = effects.reverbEnabled ? 1.8 : 0
+  const frameCount = Math.max(1, Math.ceil((clipDuration + reverbTail) * buffer.sampleRate))
+  const context = new OfflineAudioContext(buffer.numberOfChannels, frameCount, buffer.sampleRate)
+  const source = context.createBufferSource()
+  source.buffer = buffer
+  connectEffects(context, source, context.destination, effects)
+  source.start(0, start, clipDuration)
+  return encodeWav(await context.startRendering())
 }
