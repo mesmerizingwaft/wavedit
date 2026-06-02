@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,600&display=swap');
+
+:root { font-family: 'Noto Sans JP', sans-serif; color: #26312d; background: #f7f5ef; font-synthesis: none; text-rendering: optimizeLegibility; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #f7f5ef; }
+button { border: 0; cursor: pointer; font: inherit; }
+svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.site-header { height: 78px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-bottom: 1px solid #deddd7; }
+.brand { display: flex; align-items: center; gap: 10px; color: #1f2e29; font-size: 20px; font-weight: 800; letter-spacing: -.8px; }
+.brand span span { color: #ef6a38; }
+.brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border: 1.5px solid #ef6a38; border-radius: 50%; color: #ef6a38; }
+.brand-mark svg { width: 18px; height: 18px; stroke-width: 1.7; }
+.header-note, .eyebrow, footer, .selection-fields span { color: #7e8680; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px; }
+main { min-height: calc(100vh - 126px); padding: 7vh 6vw 5vh; }
+.landing { max-width: 880px; margin: 0 auto; text-align: center; }
+.eyebrow { color: #ef6a38; font-weight: 500; }
+h1 { margin: 14px 0 15px; color: #24312d; font-size: clamp(42px, 5vw, 66px); font-weight: 800; letter-spacing: -4px; line-height: 1.14; }
+h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600; letter-spacing: -2px; }
+.hero-copy { margin: 0 0 34px; color: #7b817e; font-size: 14px; line-height: 1.9; }
+.drop-zone { max-width: 680px; min-height: 264px; margin: 0 auto; display: flex; align-items: center; flex-direction: column; justify-content: center; border: 1px dashed #b8bdb7; background: rgba(255,255,255,.33); transition: .25s ease; }
+.drop-zone:hover, .drop-zone.dragging { border-color: #ef6a38; background: rgba(239,106,56,.05); transform: translateY(-2px); }
+.upload-icon { width: 44px; height: 44px; margin-bottom: 13px; display: grid; place-items: center; border-radius: 50%; color: #ef6a38; background: #fbe5dc; }
+.drop-zone strong { font-size: 16px; }
+.or { display: flex; align-items: center; gap: 9px; margin: 9px 0; color: #9ca19e; font-family: 'DM Mono'; font-size: 10px; letter-spacing: 1px; }
+.or i { width: 26px; height: 1px; background: #d2d4d0; }
+.drop-zone button { padding: 9px 20px; border: 1px solid #34423d; border-radius: 3px; color: #34423d; background: transparent; font-size: 12px; font-weight: 700; }
+.drop-zone small { margin-top: 14px; color: #9ca19e; font-size: 10px; }
+.error { color: #d74c35; font-size: 13px; }
+.workspace { max-width: 1160px; margin: 0 auto; }
+.workspace-heading { display: flex; align-items: end; justify-content: space-between; }
+.workspace-heading h1 { font-size: clamp(38px, 4vw, 56px); }
+.new-file { display: flex; align-items: center; gap: 5px; padding: 8px 0; color: #78807c; background: transparent; font-size: 12px; font-weight: 600; }
+.new-file svg { width: 15px; }
+.editor-card { margin-top: 22px; border: 1px solid #deddd7; background: rgba(255,255,255,.42); box-shadow: 0 12px 50px rgba(44,54,49,.05); }
+.file-row { min-height: 74px; display: flex; align-items: center; padding: 14px 22px; border-bottom: 1px solid #deddd7; }
+.file-icon { width: 38px; height: 38px; display: grid; margin-right: 12px; place-items: center; border-radius: 3px; color: #ef6a38; background: #fbe5dc; }
+.file-icon svg { width: 20px; }
+.file-name { display: flex; overflow: hidden; flex-direction: column; gap: 3px; }
+.file-name strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.file-name span, .duration { color: #909792; font-family: 'DM Mono'; font-size: 10px; }
+.duration { margin-left: auto; }
+.waveform-wrap { padding: 24px 22px 0; }
+.waveform-canvas { width: 100%; height: 194px; display: block; cursor: col-resize; touch-action: none; }
+.time-axis { display: flex; justify-content: space-between; padding-top: 9px; color: #989e9a; font-family: 'DM Mono'; font-size: 9px; }
+.wave-help { display: flex; align-items: center; gap: 5px; margin: 13px 22px 21px; color: #9a9f9b; font-size: 10px; }
+.wave-help svg { width: 14px; color: #ef6a38; }
+.controls { min-height: 88px; display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-top: 1px solid #deddd7; }
+.play-button { width: 47px; height: 47px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #26312d; transition: .2s; }
+.play-button:hover { background: #ef6a38; }
+.play-button svg { width: 19px; }
+.play-time { display: flex; gap: 5px; width: 112px; align-items: baseline; font-family: 'DM Mono'; }
+.play-time strong { font-size: 13px; }
+.play-time span { color: #a3a7a4; font-size: 10px; }
+.selection-fields { display: flex; align-items: center; gap: 18px; margin-left: auto; }
+.selection-fields label { display: flex; flex-direction: column; gap: 5px; }
+.selection-fields span { font-size: 9px; letter-spacing: 1px; }
+.selection-fields strong { font-family: 'DM Mono'; font-size: 13px; font-weight: 500; }
+.field-rule { height: 29px; border-left: 1px solid #deddd7; }
+.download-button { display: flex; align-items: center; gap: 10px; margin-left: 8px; padding: 11px 18px; border-radius: 3px; color: white; background: #ef6a38; text-align: left; transition: .2s; }
+.download-button:hover { background: #da582a; transform: translateY(-1px); }
+.download-button span { display: flex; flex-direction: column; font-size: 12px; font-weight: 700; }
+.download-button small { margin-top: 2px; color: rgba(255,255,255,.65); font-size: 9px; font-weight: 500; }
+footer { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-top: 1px solid #deddd7; color: #a0a5a2; font-size: 9px; letter-spacing: 1px; }
+@media (max-width: 760px) { main { padding-top: 5vh; } .header-note { display: none; } h1 { font-size: 44px; } .hero-copy br { display: none; } .workspace-heading h1 { font-size: 38px; } .waveform-canvas { height: 154px; } .controls { flex-wrap: wrap; } .selection-fields { order: 3; width: 100%; margin: 4px 0 0; justify-content: space-between; } .download-button { margin-left: auto; } footer p { display: none; } }
+@media (max-width: 420px) { .download-button { padding: 10px 12px; } .play-time { width: 86px; } .waveform-wrap { padding-inline: 14px; } .file-row, .controls { padding-inline: 14px; } }
