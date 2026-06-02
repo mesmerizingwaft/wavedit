@@ -63,3 +63,16 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 footer { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-top: 1px solid #deddd7; color: #a0a5a2; font-size: 9px; letter-spacing: 1px; }
 @media (max-width: 760px) { main { padding-top: 5vh; } .header-note { display: none; } h1 { font-size: 44px; } .hero-copy br { display: none; } .workspace-heading h1 { font-size: 38px; } .waveform-canvas { height: 154px; } .controls { flex-wrap: wrap; } .selection-fields { order: 3; width: 100%; margin: 4px 0 0; justify-content: space-between; } .download-button { margin-left: auto; } footer p { display: none; } }
 @media (max-width: 420px) { .download-button { padding: 10px 12px; } .play-time { width: 86px; } .waveform-wrap { padding-inline: 14px; } .file-row, .controls { padding-inline: 14px; } }
+.effect-panel { display: grid; grid-template-columns: minmax(150px, 1.1fr) repeat(4, minmax(125px, 1fr)); gap: 16px; padding: 16px 22px; border-top: 1px solid #deddd7; background: rgba(247,246,241,.54); }
+.effect-heading, .effect-control { display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.effect-heading span { color: #26312d; font-size: 13px; font-weight: 800; }
+.effect-heading small, .effect-control small { color: #999e9a; font-size: 9px; }
+.effect-control span { color: #66706b; font-family: 'DM Mono'; font-size: 10px; letter-spacing: .3px; }
+.effect-control b { color: #ef6a38; font-weight: 600; }
+.effect-control input[type='range'] { width: 100%; accent-color: #ef6a38; cursor: pointer; }
+.effect-control input[type='checkbox'] { accent-color: #ef6a38; vertical-align: -2px; }
+.effect-control.disabled { opacity: .45; }
+.selection-fields input { width: 84px; padding: 5px 6px; border: 1px solid #d5d6d0; border-radius: 2px; color: #26312d; background: rgba(255,255,255,.55); font-family: 'DM Mono'; font-size: 12px; }
+.download-button:disabled { cursor: wait; opacity: .72; transform: none; }
+@media (max-width: 960px) { .effect-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .effect-heading { grid-column: 1 / -1; } }
+@media (max-width: 540px) { .effect-panel { gap: 13px; padding-inline: 14px; } .selection-fields { gap: 9px; } .field-rule { display: none; } .selection-fields input { width: 76px; } }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
-import { createClippedWav, formatFileSize, formatTime } from './audio'
+import { connectEffects, createProcessedWav, formatFileSize, formatTime, type AudioEffects } from './audio'
 
 type Handle = 'start' | 'end' | null
 
@@ -9,6 +9,14 @@ type AudioFile = {
 }
 
 const MIN_CLIP_SECONDS = 0.03
+
+const DEFAULT_EFFECTS: AudioEffects = {
+  volume: 1,
+  lowpassEnabled: false,
+  lowpassFrequency: 4000,
+  reverbEnabled: false,
+  reverbMix: 0.3,
+}
 
 function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' }) {
   const paths = {
@@ -160,6 +168,8 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState('')
+  const [effects, setEffects] = useState(DEFAULT_EFFECTS)
+  const [isExporting, setIsExporting] = useState(false)
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourceRef = useRef<AudioBufferSourceNode | null>(null)
   const startedAtRef = useRef(0)
@@ -213,7 +223,7 @@ function App() {
     const offset = currentTime >= start && currentTime < end ? currentTime : start
     const source = context.createBufferSource()
     source.buffer = audio.buffer
-    source.connect(context.destination)
+    connectEffects(context, source, context.destination, effects)
     source.start(0, offset, end - offset)
     sourceRef.current = source
     startedAtRef.current = context.currentTime - offset
@@ -241,15 +251,22 @@ function App() {
     setCurrentTime(nextStart)
   }
 
-  const download = () => {
-    if (!audio) return
-    const blob = createClippedWav(audio.buffer, start, end)
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${audio.file.name.replace(/\.wav$/i, '')}-clip.wav`
-    anchor.click()
-    URL.revokeObjectURL(url)
+  const download = async () => {
+    if (!audio || isExporting) return
+    setIsExporting(true)
+    try {
+      const blob = await createProcessedWav(audio.buffer, start, end, effects)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${audio.file.name.replace(/\.wav$/i, '')}-clip.wav`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const reset = () => {
@@ -259,6 +276,20 @@ function App() {
     setStart(0)
     setEnd(0)
     setError('')
+    setEffects(DEFAULT_EFFECTS)
+  }
+
+  const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => {
+    stopPlayback()
+    setEffects((current) => ({ ...current, [key]: value }))
+  }
+
+  const updateTime = (field: 'start' | 'end', value: string) => {
+    if (!audio) return
+    const time = Number(value)
+    if (!Number.isFinite(time)) return
+    if (field === 'start') updateSelection(Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS)), end)
+    else updateSelection(start, Math.min(audio.buffer.duration, Math.max(time, start + MIN_CLIP_SECONDS)))
   }
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -317,20 +348,29 @@ function App() {
                 <Waveform buffer={audio.buffer} currentTime={currentTime} duration={audio.buffer.duration} end={end} onSelectionChange={updateSelection} start={start} />
                 <div className="time-axis"><span>0:00</span><span>{formatTime(audio.buffer.duration / 2, true)}</span><span>{formatTime(audio.buffer.duration, true)}</span></div>
               </div>
-              <p className="wave-help"><Icon name="scissors" /> オレンジ色のハンドルをドラッグして範囲を調整</p>
+              <p className="wave-help"><Icon name="scissors" /> オレンジ色のハンドルをドラッグするか、START / END に秒数を入力して範囲を調整</p>
+              <div className="effect-panel">
+                <div className="effect-heading"><span>音声エフェクト</span><small>プレビューと保存ファイルに反映されます</small></div>
+                <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
+                <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
+                <label className={`effect-control ${effects.lowpassEnabled ? '' : 'disabled'}`}><span>周波数 <b>{effects.lowpassFrequency.toLocaleString()} Hz</b></span><input disabled={!effects.lowpassEnabled} max="12000" min="200" onChange={(event) => updateEffect('lowpassFrequency', Number(event.target.value))} step="100" type="range" value={effects.lowpassFrequency} /></label>
+                <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
+                <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
+              </div>
               <div className="controls">
                 <button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button>
                 <div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(audio.buffer.duration, true)}</span></div>
                 <div className="selection-fields">
-                  <label><span>START</span><strong>{formatTime(start)}</strong></label>
+                  <label><span>START · 秒</span><input aria-label="開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label>
                   <div className="field-rule" />
-                  <label><span>END</span><strong>{formatTime(end)}</strong></label>
+                  <label><span>END · 秒</span><input aria-label="終了位置（秒）" max={audio.buffer.duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label>
                   <div className="field-rule" />
                   <label><span>LENGTH</span><strong>{formatTime(end - start)}</strong></label>
                 </div>
-                <button className="download-button" onClick={download} type="button"><Icon name="download" /><span>クリップを保存<small>WAV でダウンロード</small></span></button>
+                <button className="download-button" disabled={isExporting} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : 'クリップを保存'}<small>WAV でダウンロード</small></span></button>
               </div>
             </div>
+            {error && <p className="error">{error}</p>}
           </section>
         )}
         <input accept=".wav,audio/wav" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => void loadFile(event.target.files?.[0])} ref={fileInputRef} type="file" />
