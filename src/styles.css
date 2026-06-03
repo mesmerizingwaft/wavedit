@@ -48,6 +48,9 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .play-button { width: 47px; height: 47px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #26312d; transition: .2s; }
 .play-button:hover { background: #ef6a38; }
 .play-button svg { width: 19px; }
+.loop-button { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid #d5d6d0; border-radius: 999px; color: #7e8680; background: rgba(255,255,255,.44); font-family: 'DM Mono'; font-size: 10px; letter-spacing: .8px; transition: .2s; }
+.loop-button:hover, .loop-button.active { border-color: #ef6a38; color: #ef6a38; background: #fbe5dc; }
+.loop-button svg { width: 15px; height: 15px; }
 .play-time { display: flex; gap: 5px; width: 112px; align-items: baseline; font-family: 'DM Mono'; }
 .play-time strong { font-size: 13px; }
 .play-time span { color: #a3a7a4; font-size: 10px; }
@@ -62,7 +65,7 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .download-button small { margin-top: 2px; color: rgba(255,255,255,.65); font-size: 9px; font-weight: 500; }
 footer { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-top: 1px solid #deddd7; color: #a0a5a2; font-size: 9px; letter-spacing: 1px; }
 @media (max-width: 760px) { main { padding-top: 5vh; } .header-note { display: none; } h1 { font-size: 44px; } .hero-copy br { display: none; } .workspace-heading h1 { font-size: 38px; } .waveform-canvas { height: 154px; } .controls { flex-wrap: wrap; } .selection-fields { order: 3; width: 100%; margin: 4px 0 0; justify-content: space-between; } .download-button { margin-left: auto; } footer p { display: none; } }
-@media (max-width: 420px) { .download-button { padding: 10px 12px; } .play-time { width: 86px; } .waveform-wrap { padding-inline: 14px; } .file-row, .controls { padding-inline: 14px; } }
+@media (max-width: 420px) { .download-button { padding: 10px 12px; } .loop-button span { display: none; } .play-time { width: 86px; } .waveform-wrap { padding-inline: 14px; } .file-row, .controls { padding-inline: 14px; } }
 .effect-panel { display: grid; grid-template-columns: minmax(150px, 1.1fr) repeat(4, minmax(125px, 1fr)); gap: 16px; padding: 16px 22px; border-top: 1px solid #deddd7; background: rgba(247,246,241,.54); }
 .effect-heading, .effect-control { display: flex; flex-direction: column; justify-content: center; gap: 7px; }
 .effect-heading span { color: #26312d; font-size: 13px; font-weight: 800; }
