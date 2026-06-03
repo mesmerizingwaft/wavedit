@@ -6,6 +6,14 @@ export type AudioEffects = {
   reverbMix: number
 }
 
+export type EffectChain = {
+  volume: GainNode
+  lowpass: BiquadFilterNode
+  dry: GainNode
+  wet: GainNode
+  convolver: ConvolverNode
+}
+
 export function formatTime(seconds: number, compact = false) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0
   const minutes = Math.floor(safeSeconds / 60)
@@ -32,42 +40,46 @@ export function createReverbImpulse(context: BaseAudioContext, duration = 1.8, d
   return impulse
 }
 
+function setParam(context: BaseAudioContext, param: AudioParam, value: number) {
+  const now = context.currentTime
+  param.cancelScheduledValues(now)
+  param.setTargetAtTime(value, now, 0.01)
+}
+
+export function applyEffects(context: BaseAudioContext, chain: EffectChain, effects: AudioEffects) {
+  setParam(context, chain.volume.gain, effects.volume)
+  setParam(context, chain.lowpass.frequency, effects.lowpassEnabled ? effects.lowpassFrequency : context.sampleRate / 2)
+  setParam(context, chain.lowpass.Q, effects.lowpassEnabled ? 0.7 : 0.0001)
+  setParam(context, chain.dry.gain, effects.reverbEnabled ? 1 - effects.reverbMix : 1)
+  setParam(context, chain.wet.gain, effects.reverbEnabled ? effects.reverbMix : 0)
+}
+
 export function connectEffects(
   context: BaseAudioContext,
   source: AudioNode,
   destination: AudioNode,
   effects: AudioEffects,
 ) {
-  const gain = context.createGain()
-  gain.gain.value = effects.volume
-  source.connect(gain)
-
-  let tail: AudioNode = gain
-  if (effects.lowpassEnabled) {
-    const lowpass = context.createBiquadFilter()
-    lowpass.type = 'lowpass'
-    lowpass.frequency.value = effects.lowpassFrequency
-    lowpass.Q.value = 0.7
-    tail.connect(lowpass)
-    tail = lowpass
-  }
-
-  if (!effects.reverbEnabled) {
-    tail.connect(destination)
-    return
-  }
-
+  const volume = context.createGain()
+  const lowpass = context.createBiquadFilter()
   const dry = context.createGain()
   const wet = context.createGain()
   const convolver = context.createConvolver()
-  dry.gain.value = 1 - effects.reverbMix
-  wet.gain.value = effects.reverbMix
+
+  lowpass.type = 'lowpass'
   convolver.buffer = createReverbImpulse(context)
-  tail.connect(dry)
-  tail.connect(convolver)
+
+  source.connect(volume)
+  volume.connect(lowpass)
+  lowpass.connect(dry)
+  lowpass.connect(convolver)
   convolver.connect(wet)
   dry.connect(destination)
   wet.connect(destination)
+
+  const chain = { volume, lowpass, dry, wet, convolver }
+  applyEffects(context, chain, effects)
+  return chain
 }
 
 export function encodeWav(buffer: AudioBuffer) {

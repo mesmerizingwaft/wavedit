@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
-import { connectEffects, createProcessedWav, formatFileSize, formatTime, type AudioEffects } from './audio'
+import { applyEffects, connectEffects, createProcessedWav, formatFileSize, formatTime, type AudioEffects, type EffectChain } from './audio'
 
 type Handle = 'start' | 'end' | null
 
@@ -18,7 +18,7 @@ const DEFAULT_EFFECTS: AudioEffects = {
   reverbMix: 0.3,
 }
 
-function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' }) {
+function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' }) {
   const paths = {
     upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
     play: <path d="m9 7 8 5-8 5V7Z" />,
@@ -27,6 +27,7 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
     scissors: <><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="m8 8.5 10 6.5"/><path d="m8 15.5 10-6.5"/></>,
     audio: <><path d="M5 9v6"/><path d="M9 6v12"/><path d="M13 4v16"/><path d="M17 7v10"/><path d="M21 10v4"/></>,
     close: <><path d="m7 7 10 10"/><path d="m17 7-10 10"/></>,
+    loop: <><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
   }
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
@@ -166,23 +167,49 @@ function App() {
   const [end, setEnd] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isLooping, setIsLooping] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState('')
   const [effects, setEffects] = useState(DEFAULT_EFFECTS)
   const [isExporting, setIsExporting] = useState(false)
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const effectChainRef = useRef<EffectChain | null>(null)
   const startedAtRef = useRef(0)
   const animationRef = useRef(0)
+  const isLoopingRef = useRef(isLooping)
+  const startRef = useRef(start)
+  const endRef = useRef(end)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const stopPlayback = useCallback((reset = false) => {
     sourceRef.current?.stop()
     sourceRef.current = null
+    effectChainRef.current = null
     cancelAnimationFrame(animationRef.current)
     setIsPlaying(false)
-    if (reset) setCurrentTime(start)
-  }, [start])
+    if (reset) setCurrentTime(startRef.current)
+  }, [])
+
+  useEffect(() => {
+    isLoopingRef.current = isLooping
+    if (sourceRef.current) sourceRef.current.loop = isLooping
+  }, [isLooping])
+
+  useEffect(() => {
+    startRef.current = start
+    endRef.current = end
+    if (sourceRef.current) {
+      sourceRef.current.loopStart = start
+      sourceRef.current.loopEnd = end
+    }
+  }, [end, start])
+
+  useEffect(() => {
+    const context = audioContextRef.current
+    const chain = effectChainRef.current
+    if (context && chain) applyEffects(context, chain, effects)
+  }, [effects])
 
   useEffect(() => () => {
     sourceRef.current?.stop()
@@ -223,19 +250,40 @@ function App() {
     const offset = currentTime >= start && currentTime < end ? currentTime : start
     const source = context.createBufferSource()
     source.buffer = audio.buffer
-    connectEffects(context, source, context.destination, effects)
-    source.start(0, offset, end - offset)
+    source.loop = isLooping
+    source.loopStart = start
+    source.loopEnd = end
+    effectChainRef.current = connectEffects(context, source, context.destination, effects)
+    source.onended = () => {
+      if (sourceRef.current !== source) return
+      sourceRef.current = null
+      effectChainRef.current = null
+      cancelAnimationFrame(animationRef.current)
+      setCurrentTime(startRef.current)
+      setIsPlaying(false)
+    }
+    source.start(0, offset)
     sourceRef.current = source
     startedAtRef.current = context.currentTime - offset
     setCurrentTime(offset)
     setIsPlaying(true)
 
     const update = () => {
+      const rangeStart = startRef.current
+      const rangeEnd = endRef.current
+      const rangeDuration = Math.max(MIN_CLIP_SECONDS, rangeEnd - rangeStart)
       const next = context.currentTime - startedAtRef.current
-      if (next >= end) {
-        setCurrentTime(start)
+      if (isLoopingRef.current) {
+        setCurrentTime(rangeStart + ((((next - rangeStart) % rangeDuration) + rangeDuration) % rangeDuration))
+        animationRef.current = requestAnimationFrame(update)
+        return
+      }
+      if (next >= rangeEnd) {
+        source.stop()
+        setCurrentTime(rangeStart)
         setIsPlaying(false)
         sourceRef.current = null
+        effectChainRef.current = null
         return
       }
       setCurrentTime(next)
@@ -280,7 +328,6 @@ function App() {
   }
 
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => {
-    stopPlayback()
     setEffects((current) => ({ ...current, [key]: value }))
   }
 
@@ -359,6 +406,7 @@ function App() {
               </div>
               <div className="controls">
                 <button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button>
+                <button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => setIsLooping((current) => !current)} type="button"><Icon name="loop" /><span>LOOP</span></button>
                 <div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(audio.buffer.duration, true)}</span></div>
                 <div className="selection-fields">
                   <label><span>START · 秒</span><input aria-label="開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label>
