@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent, type WheelEvent } from 'react'
 import { applyEffects, connectEffects, copyAudioRegion, createProcessedWav, cutAudioRegion, formatFileSize, formatTime, pasteAudioRegion, type AudioClipboard, type AudioEffects, type EffectChain } from './audio'
 
 type AudioTrack = {
@@ -36,18 +36,42 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
 
-function Waveform({ buffer, start, end, currentTime, duration, onActivate, onSelectionChange }: {
+function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate, onSelectionChange, onZoomChange }: {
   buffer: AudioBuffer
   start: number
   end: number
   currentTime: number
   duration: number
+  zoom: number
   onActivate: () => void
   onSelectionChange: (start: number, end: number) => void
+  onZoomChange: (zoom: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<number | null>(null)
   const pointsRef = useRef<{ min: number; max: number }[]>([])
+  const pendingScrollRef = useRef<{ anchor: number; x: number; previousZoom: number } | null>(null)
+
+  useEffect(() => {
+    const pending = pendingScrollRef.current
+    const viewport = viewportRef.current
+    if (!pending || !viewport) return
+    viewport.scrollLeft = pending.anchor * (zoom / pending.previousZoom) - pending.x
+    pendingScrollRef.current = null
+  }, [zoom])
+
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const viewport = event.currentTarget
+    const rect = viewport.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const nextZoom = Math.max(1, Math.min(8, zoom * Math.exp(-event.deltaY * 0.01)))
+    if (Math.abs(nextZoom - zoom) < 0.001) return
+    pendingScrollRef.current = { anchor: viewport.scrollLeft + x, x, previousZoom: zoom }
+    onZoomChange(nextZoom)
+  }
 
   const getTime = useCallback((event: PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -155,7 +179,13 @@ function Waveform({ buffer, start, end, currentTime, duration, onActivate, onSel
   }, [buffer.duration, currentTime, duration, end, start])
 
   return (
-    <canvas
+    <div
+      aria-label={`波形の表示倍率 ${Math.round(zoom * 100)}%。タッチパッドでピンチして拡大縮小できます。`}
+      className="waveform-viewport"
+      onWheel={handleWheel}
+      ref={viewportRef}
+    >
+      <div className="waveform-content" style={{ width: `${zoom * 100}%` }}><canvas
       aria-label="波形エディター。波形上をドラッグしてコピーや切り出しの範囲を指定できます。"
       className="waveform-canvas"
       onPointerDown={(event) => {
@@ -169,7 +199,8 @@ function Waveform({ buffer, start, end, currentTime, duration, onActivate, onSel
       onPointerUp={() => { dragStartRef.current = null }}
       onPointerCancel={() => { dragStartRef.current = null }}
       ref={canvasRef}
-    />
+      /></div>
+    </div>
   )
 }
 
@@ -187,6 +218,7 @@ function App() {
   const [isExporting, setIsExporting] = useState(false)
   const [clipboard, setClipboard] = useState<AudioClipboard | null>(null)
   const [editMessage, setEditMessage] = useState('')
+  const [waveformZoom, setWaveformZoom] = useState(1)
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourcesRef = useRef<AudioBufferSourceNode[]>([])
   const effectChainsRef = useRef<Map<string, EffectChain>>(new Map())
@@ -311,7 +343,7 @@ function App() {
       anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
     } catch { setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。') } finally { setIsExporting(false) }
   }
-  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS) }
+  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setWaveformZoom(1) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', value: string) => {
     const time = Number(value); if (!Number.isFinite(time)) return
@@ -382,11 +414,11 @@ function App() {
             <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
             <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
           </div>
-          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} end={end} onActivate={() => setActiveTrackId(track.id)} onSelectionChange={updateSelection} start={start} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
+          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} end={end} onActivate={() => setActiveTrackId(track.id)} onSelectionChange={updateSelection} onZoomChange={setWaveformZoom} start={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
         <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>選択範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
-        <p className="wave-help"><Icon name="scissors" /> 各トラックの波形上をドラッグして範囲を選択 · コピー／切り取り／貼り付けは選択中のトラックに適用されます</p>
+        <p className="wave-help"><Icon name="scissors" /> 波形上をドラッグして範囲を選択 · タッチパッドのピンチで拡大縮小 · 横スクロールで表示位置を移動</p>
         <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
