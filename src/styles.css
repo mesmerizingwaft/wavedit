@@ -79,3 +79,23 @@ footer { height: 48px; display: flex; align-items: center; justify-content: spac
 .download-button:disabled { cursor: wait; opacity: .72; transform: none; }
 @media (max-width: 960px) { .effect-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .effect-heading { grid-column: 1 / -1; } }
 @media (max-width: 540px) { .effect-panel { gap: 13px; padding-inline: 14px; } .selection-fields { gap: 9px; } .field-rule { display: none; } .selection-fields input { width: 76px; } }
+.track-list { border-bottom: 1px solid #deddd7; }
+.track-row { min-height: 68px; cursor: pointer; transition: background .18s ease, box-shadow .18s ease; }
+.track-row:hover { background: rgba(255,255,255,.55); }
+.track-row.active { background: rgba(239,106,56,.055); box-shadow: inset 3px 0 #ef6a38; }
+.track-number { width: 30px; color: #a1a6a2; font-family: 'DM Mono'; font-size: 10px; }
+.track-volume { width: 132px; display: flex; flex-direction: column; gap: 4px; margin-left: auto; color: #858c88; font-family: 'DM Mono'; font-size: 8px; }
+.track-volume input { width: 100%; accent-color: #ef6a38; cursor: pointer; }
+.track-row .duration { margin-left: 17px; }
+.mute-button { width: 28px; height: 28px; margin-left: 15px; border: 1px solid #d4d6d1; border-radius: 2px; color: #7c847f; background: transparent; font-family: 'DM Mono'; font-size: 10px; font-weight: 600; }
+.mute-button.active { border-color: #ef6a38; color: white; background: #ef6a38; }
+.remove-track { width: 27px; height: 27px; display: grid; margin-left: 8px; place-items: center; color: #a0a5a2; background: transparent; }
+.remove-track:hover { color: #d74c35; }
+.remove-track svg { width: 15px; }
+.add-track { display: flex; align-items: center; gap: 7px; margin: 12px 22px 0 auto; padding: 7px 11px; color: #ef6a38; background: transparent; font-size: 11px; font-weight: 700; }
+.add-track svg { width: 15px; }
+.waveform-label { display: flex; align-items: center; gap: 10px; padding: 15px 22px 0; }
+.waveform-label span { color: #ef6a38; font-family: 'DM Mono'; font-size: 8px; letter-spacing: 1px; }
+.waveform-label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) { .track-volume { width: 90px; } .track-row .file-name span { display: none; } .track-number { display: none; } }
+@media (max-width: 540px) { .track-volume { display: none; } .track-row { padding-inline: 12px; } .track-row .duration { display: none; } .add-track, .waveform-label { margin-right: 12px; padding-inline: 12px; } }

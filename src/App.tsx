@@ -3,9 +3,12 @@ import { applyEffects, connectEffects, createProcessedWav, formatFileSize, forma
 
 type Handle = 'start' | 'end' | null
 
-type AudioFile = {
+type AudioTrack = {
+  id: string
   file: File
   buffer: AudioBuffer
+  volume: number
+  muted: boolean
 }
 
 const MIN_CLIP_SECONDS = 0.03
@@ -18,7 +21,7 @@ const DEFAULT_EFFECTS: AudioEffects = {
   reverbMix: 0.3,
 }
 
-function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' }) {
+function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' | 'plus' }) {
   const paths = {
     upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
     play: <path d="m9 7 8 5-8 5V7Z" />,
@@ -28,6 +31,7 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
     audio: <><path d="M5 9v6"/><path d="M9 6v12"/><path d="M13 4v16"/><path d="M17 7v10"/><path d="M21 10v4"/></>,
     close: <><path d="m7 7 10 10"/><path d="m17 7-10 10"/></>,
     loop: <><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
+    plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
   }
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
@@ -106,7 +110,7 @@ function Waveform({ buffer, start, end, currentTime, duration, onSelectionChange
     ctx.setLineDash([])
 
     pointsRef.current.forEach(({ min, max }, index) => {
-      const x = (index / pointsRef.current.length) * width
+      const x = (index / pointsRef.current.length) * (buffer.duration / duration) * width
       const isSelected = x >= startX && x <= endX
       ctx.fillStyle = isSelected ? '#ef6a38' : '#c2c4bd'
       ctx.fillRect(x, center + min * amplitude, Math.max(1, width / 1100), Math.max(1, (max - min) * amplitude))
@@ -142,7 +146,7 @@ function Waveform({ buffer, start, end, currentTime, duration, onSelectionChange
       ctx.lineTo(playX, 6)
       ctx.fill()
     }
-  }, [currentTime, duration, end, start])
+  }, [buffer.duration, currentTime, duration, end, start])
 
   return (
     <canvas
@@ -162,7 +166,8 @@ function Waveform({ buffer, start, end, currentTime, duration, onSelectionChange
 }
 
 function App() {
-  const [audio, setAudio] = useState<AudioFile | null>(null)
+  const [tracks, setTracks] = useState<AudioTrack[]>([])
+  const [activeTrackId, setActiveTrackId] = useState('')
   const [start, setStart] = useState(0)
   const [end, setEnd] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -173,8 +178,8 @@ function App() {
   const [effects, setEffects] = useState(DEFAULT_EFFECTS)
   const [isExporting, setIsExporting] = useState(false)
   const audioContextRef = useRef<AudioContext | null>(null)
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null)
-  const effectChainRef = useRef<EffectChain | null>(null)
+  const sourcesRef = useRef<AudioBufferSourceNode[]>([])
+  const effectChainsRef = useRef<Map<string, EffectChain>>(new Map())
   const startedAtRef = useRef(0)
   const animationRef = useRef(0)
   const isLoopingRef = useRef(isLooping)
@@ -182,92 +187,84 @@ function App() {
   const endRef = useRef(end)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const duration = tracks.reduce((longest, track) => Math.max(longest, track.buffer.duration), 0)
+  const activeTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0]
+
   const stopPlayback = useCallback((reset = false) => {
-    sourceRef.current?.stop()
-    sourceRef.current = null
-    effectChainRef.current = null
+    sourcesRef.current.forEach((source) => { try { source.stop() } catch { /* already stopped */ } })
+    sourcesRef.current = []
+    effectChainsRef.current.clear()
     cancelAnimationFrame(animationRef.current)
     setIsPlaying(false)
     if (reset) setCurrentTime(startRef.current)
   }, [])
 
-  useEffect(() => {
-    isLoopingRef.current = isLooping
-    if (sourceRef.current) sourceRef.current.loop = isLooping
-  }, [isLooping])
-
-  useEffect(() => {
-    startRef.current = start
-    endRef.current = end
-    if (sourceRef.current) {
-      sourceRef.current.loopStart = start
-      sourceRef.current.loopEnd = end
-    }
-  }, [end, start])
-
+  useEffect(() => { isLoopingRef.current = isLooping }, [isLooping])
+  useEffect(() => { startRef.current = start; endRef.current = end }, [end, start])
   useEffect(() => {
     const context = audioContextRef.current
-    const chain = effectChainRef.current
-    if (context && chain) applyEffects(context, chain, effects)
-  }, [effects])
+    if (!context) return
+    tracks.forEach((track) => {
+      const chain = effectChainsRef.current.get(track.id)
+      if (chain) applyEffects(context, chain, { ...effects, volume: effects.volume * track.volume * (track.muted ? 0 : 1) })
+    })
+  }, [effects, tracks])
+  useEffect(() => () => { stopPlayback(); void audioContextRef.current?.close() }, [stopPlayback])
 
-  useEffect(() => () => {
-    sourceRef.current?.stop()
-    cancelAnimationFrame(animationRef.current)
-    audioContextRef.current?.close()
-  }, [])
-
-  const loadFile = async (file?: File) => {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.wav') && file.type !== 'audio/wav' && file.type !== 'audio/wave') {
-      setError('WAV ファイルを選択してください。')
-      return
-    }
+  const loadFiles = async (files: FileList | File[], append = false) => {
+    const candidates = Array.from(files)
+    const wavFiles = candidates.filter((file) => file.name.toLowerCase().endsWith('.wav') || file.type === 'audio/wav' || file.type === 'audio/wave')
+    if (!wavFiles.length) { setError('WAV ファイルを選択してください。'); return }
     try {
       stopPlayback()
       const context = audioContextRef.current ?? new AudioContext()
       audioContextRef.current = context
-      const buffer = await context.decodeAudioData(await file.arrayBuffer())
-      setAudio({ file, buffer })
-      setStart(0)
-      setEnd(buffer.duration)
-      setCurrentTime(0)
-      setError('')
-    } catch {
-      setError('ファイルを読み込めませんでした。別の WAV ファイルをお試しください。')
-    }
+      const loaded = await Promise.all(wavFiles.map(async (file) => ({
+        id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+        file,
+        buffer: await context.decodeAudioData(await file.arrayBuffer()),
+        volume: 1,
+        muted: false,
+      })))
+      setTracks((current) => {
+        const next = append ? [...current, ...loaded] : loaded
+        const nextDuration = next.reduce((value, track) => Math.max(value, track.buffer.duration), 0)
+        setStart(0); setEnd(nextDuration); setCurrentTime(0)
+        return next
+      })
+      setActiveTrackId(loaded[0].id)
+      setError(candidates.length !== wavFiles.length ? 'WAV 以外のファイルは読み込みませんでした。' : '')
+    } catch { setError('ファイルを読み込めませんでした。別の WAV ファイルをお試しください。') }
   }
 
   const play = () => {
-    if (!audio) return
-    if (isPlaying) {
-      stopPlayback()
-      return
-    }
+    if (!tracks.length) return
+    if (isPlaying) { stopPlayback(); return }
     const context = audioContextRef.current ?? new AudioContext()
     audioContextRef.current = context
     void context.resume()
     const offset = currentTime >= start && currentTime < end ? currentTime : start
-    const source = context.createBufferSource()
-    source.buffer = audio.buffer
-    source.loop = isLooping
-    source.loopStart = start
-    source.loopEnd = end
-    effectChainRef.current = connectEffects(context, source, context.destination, effects)
-    source.onended = () => {
-      if (sourceRef.current !== source) return
-      sourceRef.current = null
-      effectChainRef.current = null
-      cancelAnimationFrame(animationRef.current)
-      setCurrentTime(startRef.current)
-      setIsPlaying(false)
-    }
-    source.start(0, offset)
-    sourceRef.current = source
+    const sessionSources: AudioBufferSourceNode[] = []
+    effectChainsRef.current.clear()
+    tracks.forEach((track) => {
+      const source = context.createBufferSource()
+      if (track.buffer.duration < duration) {
+        const padded = context.createBuffer(track.buffer.numberOfChannels, Math.ceil(duration * track.buffer.sampleRate), track.buffer.sampleRate)
+        for (let channel = 0; channel < track.buffer.numberOfChannels; channel += 1) padded.copyToChannel(track.buffer.getChannelData(channel), channel)
+        source.buffer = padded
+      } else source.buffer = track.buffer
+      source.loop = isLooping
+      source.loopStart = start
+      source.loopEnd = end
+      effectChainsRef.current.set(track.id, connectEffects(context, source, context.destination, {
+        ...effects, volume: effects.volume * track.volume * (track.muted ? 0 : 1),
+      }))
+      source.start(0, offset)
+      sessionSources.push(source)
+    })
+    sourcesRef.current = sessionSources
     startedAtRef.current = context.currentTime - offset
-    setCurrentTime(offset)
-    setIsPlaying(true)
-
+    setCurrentTime(offset); setIsPlaying(true)
     const update = () => {
       const rangeStart = startRef.current
       const rangeEnd = endRef.current
@@ -275,157 +272,81 @@ function App() {
       const next = context.currentTime - startedAtRef.current
       if (isLoopingRef.current) {
         setCurrentTime(rangeStart + ((((next - rangeStart) % rangeDuration) + rangeDuration) % rangeDuration))
-        animationRef.current = requestAnimationFrame(update)
-        return
-      }
-      if (next >= rangeEnd) {
-        source.stop()
-        setCurrentTime(rangeStart)
-        setIsPlaying(false)
-        sourceRef.current = null
-        effectChainRef.current = null
-        return
-      }
-      setCurrentTime(next)
+      } else if (next >= rangeEnd) {
+        sourcesRef.current.forEach((source) => { try { source.stop() } catch { /* already stopped */ } })
+        sourcesRef.current = []; effectChainsRef.current.clear(); setCurrentTime(rangeStart); setIsPlaying(false); return
+      } else setCurrentTime(next)
       animationRef.current = requestAnimationFrame(update)
     }
     animationRef.current = requestAnimationFrame(update)
   }
 
-  const updateSelection = (nextStart: number, nextEnd: number) => {
+  const updateSelection = (nextStart: number, nextEnd: number) => { stopPlayback(); setStart(nextStart); setEnd(nextEnd); setCurrentTime(nextStart) }
+  const updateTrack = (id: string, changes: Partial<Pick<AudioTrack, 'volume' | 'muted'>>) => setTracks((current) => current.map((track) => track.id === id ? { ...track, ...changes } : track))
+  const removeTrack = (id: string) => {
     stopPlayback()
-    setStart(nextStart)
-    setEnd(nextEnd)
-    setCurrentTime(nextStart)
+    setTracks((current) => {
+      const next = current.filter((track) => track.id !== id)
+      const nextDuration = next.reduce((value, track) => Math.max(value, track.buffer.duration), 0)
+      setEnd(nextDuration); setCurrentTime(0); setActiveTrackId((active) => active === id ? (next[0]?.id ?? '') : active)
+      return next
+    })
   }
-
   const download = async () => {
-    if (!audio || isExporting) return
+    if (!activeTrack || isExporting) return
     setIsExporting(true)
     try {
-      const blob = await createProcessedWav(audio.buffer, start, end, effects)
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${audio.file.name.replace(/\.wav$/i, '')}-clip.wav`
-      anchor.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。')
-    } finally {
-      setIsExporting(false)
-    }
+      const blob = await createProcessedWav(activeTrack.buffer, Math.min(start, activeTrack.buffer.duration), Math.min(end, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume })
+      const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url
+      anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
+    } catch { setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。') } finally { setIsExporting(false) }
   }
-
-  const reset = () => {
-    stopPlayback()
-    setAudio(null)
-    setCurrentTime(0)
-    setStart(0)
-    setEnd(0)
-    setError('')
-    setEffects(DEFAULT_EFFECTS)
-  }
-
-  const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => {
-    setEffects((current) => ({ ...current, [key]: value }))
-  }
-
+  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS) }
+  const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', value: string) => {
-    if (!audio) return
-    const time = Number(value)
-    if (!Number.isFinite(time)) return
+    const time = Number(value); if (!Number.isFinite(time)) return
     if (field === 'start') updateSelection(Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS)), end)
-    else updateSelection(start, Math.min(audio.buffer.duration, Math.max(time, start + MIN_CLIP_SECONDS)))
+    else updateSelection(start, Math.min(duration, Math.max(time, start + MIN_CLIP_SECONDS)))
   }
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setIsDragging(false); void loadFiles(event.dataTransfer.files, tracks.length > 0) }
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setIsDragging(false)
-    void loadFile(event.dataTransfer.files[0])
-  }
-
-  return (
-    <>
-      <header className="site-header">
-        <div className="brand"><span className="brand-mark"><Icon name="audio" /></span><span>Wav<span>Edit</span></span></div>
-        <div className="header-note">SIMPLE AUDIO CLIPPING</div>
-      </header>
-      <main>
-        {!audio ? (
-          <section className="landing">
-            <div className="eyebrow">WAV CLIPPER</div>
-            <h1>音を、必要な<br /><em>ところだけ。</em></h1>
-            <p className="hero-copy">ブラウザだけで完結する、シンプルな WAV エディター。<br />ファイルをドロップして、すぐに切り出せます。</p>
-            <div
-              className={`drop-zone ${isDragging ? 'dragging' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }}
-              onDragLeave={() => setIsDragging(false)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleDrop}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => event.key === 'Enter' && fileInputRef.current?.click()}
-            >
-              <span className="upload-icon"><Icon name="upload" /></span>
-              <strong>WAV ファイルをドロップ</strong>
-              <span className="or"><i /> または <i /></span>
-              <button type="button">ファイルを選択</button>
-              <small>.wav のみ · ファイルはサーバーに送信されません</small>
-            </div>
-            {error && <p className="error">{error}</p>}
-          </section>
-        ) : (
-          <section className="workspace">
-            <div className="workspace-heading">
-              <div>
-                <div className="eyebrow">NOW EDITING</div>
-                <h1>切り出す範囲を<br /><em>選択してください。</em></h1>
-              </div>
-              <button className="new-file" type="button" onClick={reset}><Icon name="close" /> 別のファイル</button>
-            </div>
-            <div className="editor-card">
-              <div className="file-row">
-                <div className="file-icon"><Icon name="audio" /></div>
-                <div className="file-name"><strong>{audio.file.name}</strong><span>{formatFileSize(audio.file.size)} · {audio.buffer.sampleRate.toLocaleString()} Hz · {audio.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</span></div>
-                <span className="duration">{formatTime(audio.buffer.duration, true)}</span>
-              </div>
-              <div className="waveform-wrap">
-                <Waveform buffer={audio.buffer} currentTime={currentTime} duration={audio.buffer.duration} end={end} onSelectionChange={updateSelection} start={start} />
-                <div className="time-axis"><span>0:00</span><span>{formatTime(audio.buffer.duration / 2, true)}</span><span>{formatTime(audio.buffer.duration, true)}</span></div>
-              </div>
-              <p className="wave-help"><Icon name="scissors" /> オレンジ色のハンドルをドラッグするか、START / END に秒数を入力して範囲を調整</p>
-              <div className="effect-panel">
-                <div className="effect-heading"><span>音声エフェクト</span><small>プレビューと保存ファイルに反映されます</small></div>
-                <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
-                <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
-                <label className={`effect-control ${effects.lowpassEnabled ? '' : 'disabled'}`}><span>周波数 <b>{effects.lowpassFrequency.toLocaleString()} Hz</b></span><input disabled={!effects.lowpassEnabled} max="12000" min="200" onChange={(event) => updateEffect('lowpassFrequency', Number(event.target.value))} step="100" type="range" value={effects.lowpassFrequency} /></label>
-                <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
-                <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
-              </div>
-              <div className="controls">
-                <button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button>
-                <button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => setIsLooping((current) => !current)} type="button"><Icon name="loop" /><span>LOOP</span></button>
-                <div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(audio.buffer.duration, true)}</span></div>
-                <div className="selection-fields">
-                  <label><span>START · 秒</span><input aria-label="開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label>
-                  <div className="field-rule" />
-                  <label><span>END · 秒</span><input aria-label="終了位置（秒）" max={audio.buffer.duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label>
-                  <div className="field-rule" />
-                  <label><span>LENGTH</span><strong>{formatTime(end - start)}</strong></label>
-                </div>
-                <button className="download-button" disabled={isExporting} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : 'クリップを保存'}<small>WAV でダウンロード</small></span></button>
-              </div>
-            </div>
-            {error && <p className="error">{error}</p>}
-          </section>
-        )}
-        <input accept=".wav,audio/wav" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => void loadFile(event.target.files?.[0])} ref={fileInputRef} type="file" />
-      </main>
-      <footer><span>WAVEDIT</span><p>YOUR AUDIO STAYS IN YOUR BROWSER.</p><span>2026</span></footer>
-    </>
-  )
+  return <>
+    <header className="site-header"><div className="brand"><span className="brand-mark"><Icon name="audio" /></span><span>Wav<span>Edit</span></span></div><div className="header-note">MULTITRACK WAV EDITOR</div></header>
+    <main>{!tracks.length ? <section className="landing">
+      <div className="eyebrow">WAV MULTITRACK PLAYER</div><h1>音を、重ねて<br /><em>再生する。</em></h1>
+      <p className="hero-copy">複数の WAV ファイルをブラウザだけで同時再生。<br />ファイルをまとめてドロップして、すぐに始められます。</p>
+      <div className={`drop-zone ${isDragging ? 'dragging' : ''}`} onClick={() => fileInputRef.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={() => setIsDragging(false)} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && fileInputRef.current?.click()}>
+        <span className="upload-icon"><Icon name="upload" /></span><strong>WAV ファイルをまとめてドロップ</strong><span className="or"><i /> または <i /></span><button type="button">ファイルを選択</button><small>.wav のみ · 複数選択できます · サーバーには送信されません</small>
+      </div>{error && <p className="error">{error}</p>}
+    </section> : <section className="workspace">
+      <div className="workspace-heading"><div><div className="eyebrow">{tracks.length} TRACKS LOADED</div><h1>トラックを重ねて<br /><em>再生しましょう。</em></h1></div><button className="new-file" type="button" onClick={reset}><Icon name="close" /> すべて閉じる</button></div>
+      <div className="editor-card">
+        <div className="track-list">{tracks.map((track, index) => <div className={`file-row track-row ${activeTrack?.id === track.id ? 'active' : ''}`} key={track.id} onClick={() => setActiveTrackId(track.id)}>
+          <div className="track-number">{String(index + 1).padStart(2, '0')}</div><div className="file-icon"><Icon name="audio" /></div>
+          <div className="file-name"><strong>{track.file.name}</strong><span>{formatFileSize(track.file.size)} · {track.buffer.sampleRate.toLocaleString()} Hz · {track.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</span></div>
+          <label className="track-volume" onClick={(event) => event.stopPropagation()}><span>VOL {Math.round(track.volume * 100)}%</span><input aria-label={`${track.file.name} の音量`} max="100" min="0" onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) / 100 })} type="range" value={track.volume * 100} /></label>
+          <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
+          <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
+        </div>)}</div>
+        <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
+        {activeTrack && <><div className="waveform-label"><span>SELECTED TRACK</span><strong>{activeTrack.file.name}</strong></div><div className="waveform-wrap"><Waveform buffer={activeTrack.buffer} currentTime={currentTime} duration={duration} end={end} onSelectionChange={updateSelection} start={start} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div></>}
+        <p className="wave-help"><Icon name="scissors" /> 選択中のトラックの波形を表示 · 再生範囲はすべてのトラックに適用されます</p>
+        <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
+          <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
+          <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
+          <label className={`effect-control ${effects.lowpassEnabled ? '' : 'disabled'}`}><span>周波数 <b>{effects.lowpassFrequency.toLocaleString()} Hz</b></span><input disabled={!effects.lowpassEnabled} max="12000" min="200" onChange={(event) => updateEffect('lowpassFrequency', Number(event.target.value))} step="100" type="range" value={effects.lowpassFrequency} /></label>
+          <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
+          <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
+        </div>
+        <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
+          <div className="selection-fields"><label><span>START · 秒</span><input aria-label="開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label><div className="field-rule" /><label><span>END · 秒</span><input aria-label="終了位置（秒）" max={duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label><div className="field-rule" /><label><span>LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
+          <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>WAV でダウンロード</small></span></button>
+        </div>
+      </div>{error && <p className="error">{error}</p>}
+    </section>}
+    <input accept=".wav,audio/wav" hidden multiple onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void loadFiles(event.target.files, tracks.length > 0); event.target.value = '' }} ref={fileInputRef} type="file" />
+    </main><footer><span>WAVEDIT</span><p>YOUR AUDIO STAYS IN YOUR BROWSER.</p><span>2026</span></footer>
+  </>
 }
 
 export default App
