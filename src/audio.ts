@@ -38,10 +38,11 @@ function resample(samples: Float32Array, sourceRate: number, targetRate: number)
 export function cutAudioRegion(context: BaseAudioContext, buffer: AudioBuffer, start: number, end: number) {
   const startFrame = Math.max(0, Math.min(buffer.length, Math.floor(start * buffer.sampleRate)))
   const endFrame = Math.max(startFrame, Math.min(buffer.length, Math.ceil(end * buffer.sampleRate)))
-  const output = context.createBuffer(buffer.numberOfChannels, Math.max(1, buffer.length - (endFrame - startFrame)), buffer.sampleRate)
+  const output = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate)
   for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
     const source = buffer.getChannelData(channel); const target = output.getChannelData(channel)
-    target.set(source.subarray(0, startFrame)); target.set(source.subarray(endFrame), startFrame)
+    target.set(source.subarray(0, startFrame))
+    target.set(source.subarray(endFrame), endFrame)
   }
   return output
 }
