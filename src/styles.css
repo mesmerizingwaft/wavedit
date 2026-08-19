@@ -67,6 +67,9 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .play-button { width: 47px; height: 47px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #26312d; transition: .2s; }
 .play-button:hover { background: #ef6a38; }
 .play-button svg { width: 19px; }
+.stop-button { width: 38px; height: 38px; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid #d5d6d0; border-radius: 50%; color: #626b67; background: rgba(255,255,255,.55); transition: .2s; }
+.stop-button:hover { border-color: #ef6a38; color: #ef6a38; background: #fbe5dc; }
+.stop-button svg { width: 17px; height: 17px; fill: currentColor; stroke: none; }
 .loop-button { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid #d5d6d0; border-radius: 999px; color: #7e8680; background: rgba(255,255,255,.44); font-family: 'DM Mono'; font-size: 10px; letter-spacing: .8px; transition: .2s; }
 .loop-button:hover, .loop-button.active { border-color: #ef6a38; color: #ef6a38; background: #fbe5dc; }
 .loop-button svg { width: 15px; height: 15px; }

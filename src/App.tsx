@@ -21,11 +21,12 @@ const DEFAULT_EFFECTS: AudioEffects = {
   reverbMix: 0.3,
 }
 
-function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' | 'plus' | 'copy' | 'paste' }) {
+function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'stop' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' | 'plus' | 'copy' | 'paste' }) {
   const paths = {
     upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
     play: <path d="m9 7 8 5-8 5V7Z" />,
     pause: <><path d="M9 7v10"/><path d="M15 7v10"/></>,
+    stop: <rect x="8" y="8" width="8" height="8" rx=".5" />,
     download: <><path d="M12 4v11"/><path d="m8 11 4 4 4-4"/><path d="M5 20h14"/></>,
     scissors: <><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="m8 8.5 10 6.5"/><path d="m8 15.5 10-6.5"/></>,
     audio: <><path d="M5 9v6"/><path d="M9 6v12"/><path d="M13 4v16"/><path d="M17 7v10"/><path d="M21 10v4"/></>,
@@ -459,7 +460,7 @@ function App() {
           <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
           <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
         </div>
-        <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
+        <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-label="停止して再生開始位置に戻る" className="stop-button" onClick={() => stopPlayback(true)} type="button"><Icon name="stop" /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
           <div className="selection-fields"><label><span>再生 START · 秒</span><input aria-label="再生開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><input aria-label="再生終了位置（秒）" max={duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
           <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>WAV でダウンロード</small></span></button>
         </div>
