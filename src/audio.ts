@@ -14,6 +14,51 @@ export type EffectChain = {
   convolver: ConvolverNode
 }
 
+export type AudioClipboard = { channels: Float32Array[]; sampleRate: number }
+
+export function copyAudioRegion(buffer: AudioBuffer, start: number, end: number): AudioClipboard | null {
+  const startFrame = Math.max(0, Math.min(buffer.length, Math.floor(start * buffer.sampleRate)))
+  const endFrame = Math.max(startFrame, Math.min(buffer.length, Math.ceil(end * buffer.sampleRate)))
+  if (endFrame <= startFrame) return null
+  return { channels: Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel).slice(startFrame, endFrame)), sampleRate: buffer.sampleRate }
+}
+
+function resample(samples: Float32Array, sourceRate: number, targetRate: number) {
+  if (sourceRate === targetRate) return samples
+  const output = new Float32Array(Math.max(1, Math.round(samples.length * targetRate / sourceRate)))
+  for (let index = 0; index < output.length; index += 1) {
+    const position = index * sourceRate / targetRate
+    const left = Math.min(samples.length - 1, Math.floor(position))
+    const right = Math.min(samples.length - 1, left + 1)
+    output[index] = samples[left] + (samples[right] - samples[left]) * (position - left)
+  }
+  return output
+}
+
+export function cutAudioRegion(context: BaseAudioContext, buffer: AudioBuffer, start: number, end: number) {
+  const startFrame = Math.max(0, Math.min(buffer.length, Math.floor(start * buffer.sampleRate)))
+  const endFrame = Math.max(startFrame, Math.min(buffer.length, Math.ceil(end * buffer.sampleRate)))
+  const output = context.createBuffer(buffer.numberOfChannels, Math.max(1, buffer.length - (endFrame - startFrame)), buffer.sampleRate)
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const source = buffer.getChannelData(channel); const target = output.getChannelData(channel)
+    target.set(source.subarray(0, startFrame)); target.set(source.subarray(endFrame), startFrame)
+  }
+  return output
+}
+
+export function pasteAudioRegion(context: BaseAudioContext, buffer: AudioBuffer, at: number, clipboard: AudioClipboard) {
+  const insertionFrame = Math.max(0, Math.min(buffer.length, Math.round(at * buffer.sampleRate)))
+  const pastedChannels = clipboard.channels.map((channel) => resample(channel, clipboard.sampleRate, buffer.sampleRate))
+  const pastedLength = pastedChannels[0]?.length ?? 0
+  const output = context.createBuffer(buffer.numberOfChannels, buffer.length + pastedLength, buffer.sampleRate)
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const source = buffer.getChannelData(channel); const target = output.getChannelData(channel)
+    const pasted = pastedChannels[Math.min(channel, pastedChannels.length - 1)] ?? new Float32Array(pastedLength)
+    target.set(source.subarray(0, insertionFrame)); target.set(pasted, insertionFrame); target.set(source.subarray(insertionFrame), insertionFrame + pastedLength)
+  }
+  return { buffer: output, duration: pastedLength / buffer.sampleRate }
+}
+
 export function formatTime(seconds: number, compact = false) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0
   const minutes = Math.floor(safeSeconds / 60)
