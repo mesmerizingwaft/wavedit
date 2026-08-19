@@ -233,6 +233,41 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
   )
 }
 
+function PlaybackTimeInput({ ariaLabel, value, min, max, onCommit }: {
+  ariaLabel: string
+  value: number
+  min: number
+  max: number
+  onCommit: (value: number) => number
+}) {
+  const formatValue = (time: number) => time.toFixed(3)
+  const [draft, setDraft] = useState(formatValue(value))
+
+  const commit = () => {
+    const next = Number(draft)
+    if (!draft.trim() || !Number.isFinite(next)) {
+      setDraft(formatValue(value))
+      return
+    }
+    setDraft(formatValue(onCommit(next)))
+  }
+
+  return <input
+    aria-label={ariaLabel}
+    max={max}
+    min={min}
+    onBlur={commit}
+    onChange={(event) => setDraft(event.target.value)}
+    onKeyDown={(event) => {
+      if (event.key === 'Enter') event.currentTarget.blur()
+      if (event.key === 'Escape') setDraft(formatValue(value))
+    }}
+    step="0.001"
+    type="number"
+    value={draft}
+  />
+}
+
 function App() {
   const [tracks, setTracks] = useState<AudioTrack[]>([])
   const [activeTrackId, setActiveTrackId] = useState('')
@@ -380,10 +415,15 @@ function App() {
   }
   const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setWaveformZoom(1) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
-  const updateTime = (field: 'start' | 'end', value: string) => {
-    const time = Number(value); if (!Number.isFinite(time)) return
-    if (field === 'start') updateSelection(Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS)), end)
-    else updateSelection(start, Math.min(duration, Math.max(time, start + MIN_CLIP_SECONDS)))
+  const updateTime = (field: 'start' | 'end', time: number) => {
+    if (field === 'start') {
+      const nextStart = Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS))
+      updateSelection(nextStart, end)
+      return nextStart
+    }
+    const nextEnd = Math.min(duration, Math.max(time, start + MIN_CLIP_SECONDS))
+    updateSelection(start, nextEnd)
+    return nextEnd
   }
   const handleDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setIsDragging(false); void loadFiles(event.dataTransfer.files, tracks.length > 0) }
 
@@ -461,7 +501,7 @@ function App() {
           <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
         </div>
         <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-label="停止して再生開始位置に戻る" className="stop-button" onClick={() => stopPlayback(true)} type="button"><Icon name="stop" /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
-          <div className="selection-fields"><label><span>再生 START · 秒</span><input aria-label="再生開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><input aria-label="再生終了位置（秒）" max={duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
+          <div className="selection-fields"><label><span>再生 START · 秒</span><PlaybackTimeInput ariaLabel="再生開始位置（秒）" key={`start-${start}`} max={Math.max(0, end - MIN_CLIP_SECONDS)} min={0} onCommit={(value) => updateTime('start', value)} value={start} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><PlaybackTimeInput ariaLabel="再生終了位置（秒）" key={`end-${end}`} max={duration} min={start + MIN_CLIP_SECONDS} onCommit={(value) => updateTime('end', value)} value={end} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
           <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>WAV でダウンロード</small></span></button>
         </div>
       </div>{error && <p className="error">{error}</p>}
