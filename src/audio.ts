@@ -166,13 +166,15 @@ export function encodeWav(buffer: AudioBuffer) {
   return new Blob([wav], { type: 'audio/wav' })
 }
 
-export async function createProcessedWav(buffer: AudioBuffer, start: number, end: number, effects: AudioEffects) {
+export async function createProcessedWav(buffer: AudioBuffer, start: number, end: number, effects: AudioEffects, playbackRate = 1) {
   const clipDuration = Math.max(0, end - start)
+  const safePlaybackRate = Math.max(0.25, Math.min(4, playbackRate))
   const reverbTail = effects.reverbEnabled ? 1.8 : 0
-  const frameCount = Math.max(1, Math.ceil((clipDuration + reverbTail) * buffer.sampleRate))
+  const frameCount = Math.max(1, Math.ceil((clipDuration / safePlaybackRate + reverbTail) * buffer.sampleRate))
   const context = new OfflineAudioContext(buffer.numberOfChannels, frameCount, buffer.sampleRate)
   const source = context.createBufferSource()
   source.buffer = buffer
+  source.playbackRate.value = safePlaybackRate
   connectEffects(context, source, context.destination, effects)
   source.start(0, start, clipDuration)
   return encodeWav(await context.startRendering())
