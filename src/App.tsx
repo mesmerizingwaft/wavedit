@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
 import { applyEffects, connectEffects, copyAudioRegion, createProcessedWav, cutAudioRegion, formatFileSize, formatTime, pasteAudioRegion, type AudioClipboard, type AudioEffects, type EffectChain } from './audio'
 
-type Handle = 'start' | 'end' | null
-
 type AudioTrack = {
   id: string
   file: File
@@ -38,27 +36,33 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
 
-function Waveform({ buffer, start, end, currentTime, duration, onSelectionChange }: {
+function Waveform({ buffer, start, end, currentTime, duration, onActivate, onSelectionChange }: {
   buffer: AudioBuffer
   start: number
   end: number
   currentTime: number
   duration: number
+  onActivate: () => void
   onSelectionChange: (start: number, end: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const dragRef = useRef<Handle>(null)
+  const dragStartRef = useRef<number | null>(null)
   const pointsRef = useRef<{ min: number; max: number }[]>([])
 
   const getTime = useCallback((event: PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
-    return Math.max(0, Math.min(duration, ((event.clientX - rect.left) / rect.width) * duration))
-  }, [duration])
+    return Math.max(0, Math.min(buffer.duration, ((event.clientX - rect.left) / rect.width) * duration))
+  }, [buffer.duration, duration])
 
-  const moveHandle = useCallback((handle: Handle, time: number) => {
-    if (handle === 'start') onSelectionChange(Math.min(time, end - MIN_CLIP_SECONDS), end)
-    if (handle === 'end') onSelectionChange(start, Math.max(time, start + MIN_CLIP_SECONDS))
-  }, [end, onSelectionChange, start])
+  const selectTo = useCallback((time: number) => {
+    const anchor = dragStartRef.current
+    if (anchor === null) return
+    const nextStart = Math.min(anchor, time)
+    const nextEnd = Math.max(anchor, time)
+    if (nextEnd - nextStart >= MIN_CLIP_SECONDS) onSelectionChange(nextStart, nextEnd)
+    else if (anchor + MIN_CLIP_SECONDS <= buffer.duration) onSelectionChange(anchor, anchor + MIN_CLIP_SECONDS)
+    else onSelectionChange(Math.max(0, anchor - MIN_CLIP_SECONDS), anchor)
+  }, [buffer.duration, onSelectionChange])
 
   useEffect(() => {
     const makePoints = () => {
@@ -152,16 +156,18 @@ function Waveform({ buffer, start, end, currentTime, duration, onSelectionChange
 
   return (
     <canvas
-      aria-label="波形エディター。左右のハンドルをドラッグして切り出す範囲を指定できます。"
+      aria-label="波形エディター。波形上をドラッグしてコピーや切り出しの範囲を指定できます。"
       className="waveform-canvas"
       onPointerDown={(event) => {
         const time = getTime(event)
-        dragRef.current = Math.abs(time - start) < Math.abs(time - end) ? 'start' : 'end'
+        onActivate()
+        dragStartRef.current = time
         event.currentTarget.setPointerCapture(event.pointerId)
-        moveHandle(dragRef.current, time)
+        selectTo(time)
       }}
-      onPointerMove={(event) => dragRef.current && moveHandle(dragRef.current, getTime(event))}
-      onPointerUp={() => { dragRef.current = null }}
+      onPointerMove={(event) => dragStartRef.current !== null && selectTo(getTime(event))}
+      onPointerUp={() => { dragStartRef.current = null }}
+      onPointerCancel={() => { dragStartRef.current = null }}
       ref={canvasRef}
     />
   )
@@ -368,17 +374,19 @@ function App() {
     </section> : <section className="workspace">
       <div className="workspace-heading"><div><div className="eyebrow">{tracks.length} TRACKS LOADED</div><h1>トラックを重ねて<br /><em>再生しましょう。</em></h1></div><button className="new-file" type="button" onClick={reset}><Icon name="close" /> すべて閉じる</button></div>
       <div className="editor-card">
-        <div className="track-list">{tracks.map((track, index) => <div className={`file-row track-row ${activeTrack?.id === track.id ? 'active' : ''}`} key={track.id} onClick={() => setActiveTrackId(track.id)}>
-          <div className="track-number">{String(index + 1).padStart(2, '0')}</div><div className="file-icon"><Icon name="audio" /></div>
-          <div className="file-name"><strong>{track.file.name}</strong><span>{formatFileSize(track.file.size)} · {track.buffer.sampleRate.toLocaleString()} Hz · {track.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</span></div>
-          <label className="track-volume" onClick={(event) => event.stopPropagation()}><span>VOL {Math.round(track.volume * 100)}%</span><input aria-label={`${track.file.name} の音量`} max="100" min="0" onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) / 100 })} type="range" value={track.volume * 100} /></label>
-          <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
-          <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
+        <div className="track-list">{tracks.map((track, index) => <div className={`track ${activeTrack?.id === track.id ? 'active' : ''}`} key={track.id}>
+          <div className="file-row track-row" onClick={() => setActiveTrackId(track.id)}>
+            <div className="track-number">{String(index + 1).padStart(2, '0')}</div><div className="file-icon"><Icon name="audio" /></div>
+            <div className="file-name"><strong>{track.file.name}</strong><span>{formatFileSize(track.file.size)} · {track.buffer.sampleRate.toLocaleString()} Hz · {track.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</span></div>
+            <label className="track-volume" onClick={(event) => event.stopPropagation()}><span>VOL {Math.round(track.volume * 100)}%</span><input aria-label={`${track.file.name} の音量`} max="100" min="0" onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) / 100 })} type="range" value={track.volume * 100} /></label>
+            <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
+            <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
+          </div>
+          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} end={end} onActivate={() => setActiveTrackId(track.id)} onSelectionChange={updateSelection} start={start} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
-        {activeTrack && <><div className="waveform-label"><span>SELECTED TRACK</span><strong>{activeTrack.file.name}</strong></div><div className="waveform-wrap"><Waveform buffer={activeTrack.buffer} currentTime={currentTime} duration={duration} end={end} onSelectionChange={updateSelection} start={start} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div></>}
         <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>選択範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
-        <p className="wave-help"><Icon name="scissors" /> ハンドルで範囲を選択 · コピー／切り取り／貼り付けは選択中のトラックに適用されます</p>
+        <p className="wave-help"><Icon name="scissors" /> 各トラックの波形上をドラッグして範囲を選択 · コピー／切り取り／貼り付けは選択中のトラックに適用されます</p>
         <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
