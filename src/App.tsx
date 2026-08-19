@@ -7,6 +7,8 @@ type AudioTrack = {
   buffer: AudioBuffer
   volume: number
   muted: boolean
+  editStart: number
+  editEnd: number
 }
 
 const MIN_CLIP_SECONDS = 0.03
@@ -36,15 +38,18 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
 
-function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate, onSelectionChange, onZoomChange }: {
+function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, currentTime, duration, zoom, isActive, onActivate, onEditSelectionChange, onZoomChange }: {
   buffer: AudioBuffer
-  start: number
-  end: number
+  playbackStart: number
+  playbackEnd: number
+  editStart: number
+  editEnd: number
   currentTime: number
   duration: number
   zoom: number
+  isActive: boolean
   onActivate: () => void
-  onSelectionChange: (start: number, end: number) => void
+  onEditSelectionChange: (start: number, end: number) => void
   onZoomChange: (zoom: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -94,10 +99,10 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
     if (anchor === null) return
     const nextStart = Math.min(anchor, time)
     const nextEnd = Math.max(anchor, time)
-    if (nextEnd - nextStart >= MIN_CLIP_SECONDS) onSelectionChange(nextStart, nextEnd)
-    else if (anchor + MIN_CLIP_SECONDS <= buffer.duration) onSelectionChange(anchor, anchor + MIN_CLIP_SECONDS)
-    else onSelectionChange(Math.max(0, anchor - MIN_CLIP_SECONDS), anchor)
-  }, [buffer.duration, onSelectionChange])
+    if (nextEnd - nextStart >= MIN_CLIP_SECONDS) onEditSelectionChange(nextStart, nextEnd)
+    else if (anchor + MIN_CLIP_SECONDS <= buffer.duration) onEditSelectionChange(anchor, anchor + MIN_CLIP_SECONDS)
+    else onEditSelectionChange(Math.max(0, anchor - MIN_CLIP_SECONDS), anchor)
+  }, [buffer.duration, onEditSelectionChange])
 
   useEffect(() => {
     const makePoints = () => {
@@ -133,8 +138,10 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
     const height = rect.height
     const center = height / 2
     const amplitude = height * 0.38
-    const startX = (start / duration) * width
-    const endX = (end / duration) * width
+    const playbackStartX = (playbackStart / duration) * width
+    const playbackEndX = (playbackEnd / duration) * width
+    const editStartX = (editStart / duration) * width
+    const editEndX = (editEnd / duration) * width
     const playX = (currentTime / duration) * width
 
     ctx.clearRect(0, 0, width, height)
@@ -152,26 +159,37 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
 
     pointsRef.current.forEach(({ min, max }, index) => {
       const x = (index / pointsRef.current.length) * (buffer.duration / duration) * width
-      const isSelected = x >= startX && x <= endX
-      ctx.fillStyle = isSelected ? '#ef6a38' : '#c2c4bd'
+      const isEditSelected = isActive && x >= editStartX && x <= editEndX
+      const isInPlaybackRange = x >= playbackStartX && x <= playbackEndX
+      ctx.fillStyle = isEditSelected ? '#287f8f' : isInPlaybackRange ? '#ef6a38' : '#c2c4bd'
       ctx.fillRect(x, center + min * amplitude, Math.max(1, width / 1100), Math.max(1, (max - min) * amplitude))
     })
 
     ctx.fillStyle = 'rgba(70, 74, 71, 0.12)'
-    ctx.fillRect(0, 0, startX, height)
-    ctx.fillRect(endX, 0, width - endX, height)
+    ctx.fillRect(0, 0, playbackStartX, height)
+    ctx.fillRect(playbackEndX, 0, width - playbackEndX, height)
 
     ctx.strokeStyle = '#ef6a38'
     ctx.lineWidth = 2
-    ctx.strokeRect(startX, 1, Math.max(0, endX - startX), height - 2)
+    ctx.strokeRect(playbackStartX, 1, Math.max(0, playbackEndX - playbackStartX), height - 2)
 
-    ;[startX, endX].forEach((x) => {
+    ;[playbackStartX, playbackEndX].forEach((x) => {
       ctx.fillStyle = '#ef6a38'
       ctx.fillRect(x - 5, 0, 10, height)
       ctx.fillStyle = 'rgba(255,255,255,.9)'
       ctx.fillRect(x - 1.5, height / 2 - 8, 1, 16)
       ctx.fillRect(x + 1.5, height / 2 - 8, 1, 16)
     })
+
+    if (isActive) {
+      ctx.fillStyle = 'rgba(40, 127, 143, .12)'
+      ctx.fillRect(editStartX, 0, Math.max(0, editEndX - editStartX), height)
+      ctx.strokeStyle = '#287f8f'
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 4])
+      ctx.strokeRect(editStartX, 3, Math.max(0, editEndX - editStartX), height - 6)
+      ctx.setLineDash([])
+    }
 
     if (currentTime > 0) {
       ctx.strokeStyle = '#26312d'
@@ -187,7 +205,7 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
       ctx.lineTo(playX, 6)
       ctx.fill()
     }
-  }, [buffer.duration, currentTime, duration, end, start])
+  }, [buffer.duration, currentTime, duration, editEnd, editStart, isActive, playbackEnd, playbackStart])
 
   return (
     <div
@@ -196,7 +214,7 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
       ref={viewportRef}
     >
       <div className="waveform-content" style={{ width: `${zoom * 100}%` }}><canvas
-      aria-label="波形エディター。波形上をドラッグしてコピーや切り出しの範囲を指定できます。"
+      aria-label="波形エディター。波形上をドラッグして、このトラックだけのコピー・切り取り範囲を指定できます。"
       className="waveform-canvas"
       onPointerDown={(event) => {
         const time = getTime(event)
@@ -277,7 +295,10 @@ function App() {
         buffer: await context.decodeAudioData(await file.arrayBuffer()),
         volume: 1,
         muted: false,
+        editStart: 0,
+        editEnd: 0,
       })))
+      loaded.forEach((track) => { track.editEnd = track.buffer.duration })
       setTracks((current) => {
         const next = append ? [...current, ...loaded] : loaded
         const nextDuration = next.reduce((value, track) => Math.max(value, track.buffer.duration), 0)
@@ -334,6 +355,9 @@ function App() {
   }
 
   const updateSelection = (nextStart: number, nextEnd: number) => { stopPlayback(); setStart(nextStart); setEnd(nextEnd); setCurrentTime(nextStart) }
+  const updateEditSelection = (id: string, editStart: number, editEnd: number) => {
+    setTracks((current) => current.map((track) => track.id === id ? { ...track, editStart, editEnd } : track))
+  }
   const updateTrack = (id: string, changes: Partial<Pick<AudioTrack, 'volume' | 'muted'>>) => setTracks((current) => current.map((track) => track.id === id ? { ...track, ...changes } : track))
   const removeTrack = (id: string) => {
     stopPlayback()
@@ -364,34 +388,34 @@ function App() {
 
   const copySelection = useCallback(() => {
     if (!activeTrack) return
-    const copied = copyAudioRegion(activeTrack.buffer, start, Math.min(end, activeTrack.buffer.duration))
+    const copied = copyAudioRegion(activeTrack.buffer, activeTrack.editStart, Math.min(activeTrack.editEnd, activeTrack.buffer.duration))
     if (!copied) { setEditMessage('コピーできる範囲を選択してください。'); return }
     setClipboard(copied); setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} をコピーしました。`)
-  }, [activeTrack, end, start])
+  }, [activeTrack])
 
   const cutSelection = useCallback(() => {
     if (!activeTrack) return
-    const copied = copyAudioRegion(activeTrack.buffer, start, Math.min(end, activeTrack.buffer.duration))
+    const copied = copyAudioRegion(activeTrack.buffer, activeTrack.editStart, Math.min(activeTrack.editEnd, activeTrack.buffer.duration))
     if (!copied) { setEditMessage('切り取れる範囲を選択してください。'); return }
     stopPlayback()
     const context = audioContextRef.current ?? new AudioContext(); audioContextRef.current = context
-    const nextBuffer = cutAudioRegion(context, activeTrack.buffer, start, end)
+    const nextBuffer = cutAudioRegion(context, activeTrack.buffer, activeTrack.editStart, activeTrack.editEnd)
     setClipboard(copied)
     setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: nextBuffer } : track))
-    setCurrentTime(start)
+    setCurrentTime(activeTrack.editStart)
     setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} を切り取り、無音にしました。`)
-  }, [activeTrack, end, start, stopPlayback])
+  }, [activeTrack, stopPlayback])
 
   const pasteSelection = useCallback(() => {
     if (!activeTrack || !clipboard) return
     stopPlayback()
     const context = audioContextRef.current ?? new AudioContext(); audioContextRef.current = context
-    const at = Math.min(start, activeTrack.buffer.duration)
+    const at = Math.min(activeTrack.editStart, activeTrack.buffer.duration)
     const pasted = pasteAudioRegion(context, activeTrack.buffer, at, clipboard)
-    setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: pasted.buffer } : track))
-    setStart(at); setEnd(at + pasted.duration); setCurrentTime(at)
+    setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: pasted.buffer, editStart: at, editEnd: at + pasted.duration } : track))
+    setCurrentTime(at)
     setEditMessage(`${formatTime(pasted.duration)} を ${formatTime(at)} に貼り付けました。`)
-  }, [activeTrack, clipboard, start, stopPlayback])
+  }, [activeTrack, clipboard, stopPlayback])
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -423,11 +447,11 @@ function App() {
             <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
             <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
           </div>
-          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} end={end} onActivate={() => setActiveTrackId(track.id)} onSelectionChange={updateSelection} onZoomChange={setWaveformZoom} start={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
+          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} editEnd={track.editEnd} editStart={track.editStart} isActive={activeTrack?.id === track.id} onActivate={() => setActiveTrackId(track.id)} onEditSelectionChange={(editStart, editEnd) => updateEditSelection(track.id, editStart, editEnd)} onZoomChange={setWaveformZoom} playbackEnd={end} playbackStart={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
-        <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>選択範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
-        <p className="wave-help"><Icon name="scissors" /> 波形上をドラッグして範囲を選択 · タッチパッドのピンチで拡大縮小 · 横スクロールで表示位置を移動</p>
+        <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><div className="edit-selection"><span>編集範囲 · 選択トラックのみ</span><strong>{activeTrack ? `${formatTime(activeTrack.editStart)} — ${formatTime(activeTrack.editEnd)}` : '—'}</strong></div><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>編集範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
+        <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集範囲（ドラッグで指定） · <em>オレンジ</em>：全トラック共通の再生範囲（下の秒数で指定）</span></p>
         <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
@@ -436,7 +460,7 @@ function App() {
           <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
         </div>
         <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
-          <div className="selection-fields"><label><span>START · 秒</span><input aria-label="開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label><div className="field-rule" /><label><span>END · 秒</span><input aria-label="終了位置（秒）" max={duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label><div className="field-rule" /><label><span>LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
+          <div className="selection-fields"><label><span>再生 START · 秒</span><input aria-label="再生開始位置（秒）" max={Math.max(0, end - MIN_CLIP_SECONDS)} min="0" onChange={(event) => updateTime('start', event.target.value)} step="0.001" type="number" value={start.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><input aria-label="再生終了位置（秒）" max={duration} min={start + MIN_CLIP_SECONDS} onChange={(event) => updateTime('end', event.target.value)} step="0.001" type="number" value={end.toFixed(3)} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
           <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>WAV でダウンロード</small></span></button>
         </div>
       </div>{error && <p className="error">{error}</p>}
