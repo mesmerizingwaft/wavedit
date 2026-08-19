@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
-import { applyEffects, connectEffects, createProcessedWav, formatFileSize, formatTime, type AudioEffects, type EffectChain } from './audio'
+import { applyEffects, connectEffects, copyAudioRegion, createProcessedWav, cutAudioRegion, formatFileSize, formatTime, pasteAudioRegion, type AudioClipboard, type AudioEffects, type EffectChain } from './audio'
 
 type Handle = 'start' | 'end' | null
 
@@ -21,7 +21,7 @@ const DEFAULT_EFFECTS: AudioEffects = {
   reverbMix: 0.3,
 }
 
-function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' | 'plus' }) {
+function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scissors' | 'audio' | 'close' | 'loop' | 'plus' | 'copy' | 'paste' }) {
   const paths = {
     upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
     play: <path d="m9 7 8 5-8 5V7Z" />,
@@ -32,6 +32,8 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'download' | 'scis
     close: <><path d="m7 7 10 10"/><path d="m17 7-10 10"/></>,
     loop: <><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
     plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
+    copy: <><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></>,
+    paste: <><path d="M9 5h6"/><path d="M9 3h6v4H9z"/><path d="M7 5H5v16h14V5h-2"/></>,
   }
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
@@ -177,6 +179,8 @@ function App() {
   const [error, setError] = useState('')
   const [effects, setEffects] = useState(DEFAULT_EFFECTS)
   const [isExporting, setIsExporting] = useState(false)
+  const [clipboard, setClipboard] = useState<AudioClipboard | null>(null)
+  const [editMessage, setEditMessage] = useState('')
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourcesRef = useRef<AudioBufferSourceNode[]>([])
   const effectChainsRef = useRef<Map<string, EffectChain>>(new Map())
@@ -310,6 +314,49 @@ function App() {
   }
   const handleDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setIsDragging(false); void loadFiles(event.dataTransfer.files, tracks.length > 0) }
 
+  const copySelection = useCallback(() => {
+    if (!activeTrack) return
+    const copied = copyAudioRegion(activeTrack.buffer, start, Math.min(end, activeTrack.buffer.duration))
+    if (!copied) { setEditMessage('コピーできる範囲を選択してください。'); return }
+    setClipboard(copied); setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} をコピーしました。`)
+  }, [activeTrack, end, start])
+
+  const cutSelection = useCallback(() => {
+    if (!activeTrack) return
+    const copied = copyAudioRegion(activeTrack.buffer, start, Math.min(end, activeTrack.buffer.duration))
+    if (!copied) { setEditMessage('切り取れる範囲を選択してください。'); return }
+    stopPlayback()
+    const context = audioContextRef.current ?? new AudioContext(); audioContextRef.current = context
+    const nextBuffer = cutAudioRegion(context, activeTrack.buffer, start, end)
+    setClipboard(copied)
+    setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: nextBuffer } : track))
+    const nextEnd = Math.min(nextBuffer.duration, start + MIN_CLIP_SECONDS)
+    setStart(Math.max(0, nextEnd - MIN_CLIP_SECONDS)); setEnd(nextEnd); setCurrentTime(Math.max(0, nextEnd - MIN_CLIP_SECONDS))
+    setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} を切り取りました。`)
+  }, [activeTrack, end, start, stopPlayback])
+
+  const pasteSelection = useCallback(() => {
+    if (!activeTrack || !clipboard) return
+    stopPlayback()
+    const context = audioContextRef.current ?? new AudioContext(); audioContextRef.current = context
+    const at = Math.min(start, activeTrack.buffer.duration)
+    const pasted = pasteAudioRegion(context, activeTrack.buffer, at, clipboard)
+    setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: pasted.buffer } : track))
+    setStart(at); setEnd(at + pasted.duration); setCurrentTime(at)
+    setEditMessage(`${formatTime(pasted.duration)} を ${formatTime(at)} に貼り付けました。`)
+  }, [activeTrack, clipboard, start, stopPlayback])
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.target instanceof HTMLInputElement) return
+      if (event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection() }
+      if (event.key.toLowerCase() === 'x') { event.preventDefault(); cutSelection() }
+      if (event.key.toLowerCase() === 'v' && clipboard) { event.preventDefault(); pasteSelection() }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [clipboard, copySelection, cutSelection, pasteSelection])
+
   return <>
     <header className="site-header"><div className="brand"><span className="brand-mark"><Icon name="audio" /></span><span>Wav<span>Edit</span></span></div><div className="header-note">MULTITRACK WAV EDITOR</div></header>
     <main>{!tracks.length ? <section className="landing">
@@ -330,7 +377,8 @@ function App() {
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
         {activeTrack && <><div className="waveform-label"><span>SELECTED TRACK</span><strong>{activeTrack.file.name}</strong></div><div className="waveform-wrap"><Waveform buffer={activeTrack.buffer} currentTime={currentTime} duration={duration} end={end} onSelectionChange={updateSelection} start={start} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div></>}
-        <p className="wave-help"><Icon name="scissors" /> 選択中のトラックの波形を表示 · 再生範囲はすべてのトラックに適用されます</p>
+        <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>選択範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
+        <p className="wave-help"><Icon name="scissors" /> ハンドルで範囲を選択 · コピー／切り取り／貼り付けは選択中のトラックに適用されます</p>
         <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>

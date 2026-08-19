@@ -44,6 +44,14 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .time-axis { display: flex; justify-content: space-between; padding-top: 9px; color: #989e9a; font-family: 'DM Mono'; font-size: 9px; }
 .wave-help { display: flex; align-items: center; gap: 5px; margin: 13px 22px 21px; color: #9a9f9b; font-size: 10px; }
 .wave-help svg { width: 14px; color: #ef6a38; }
+.edit-toolbar { display: flex; align-items: center; gap: 8px; margin: 15px 22px 0; }
+.edit-toolbar button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 7px 12px; border: 1px solid #d5d6d0; border-radius: 3px; color: #48534f; background: rgba(255,255,255,.55); }
+.edit-toolbar button:hover:not(:disabled) { border-color: #ef6a38; color: #ef6a38; }
+.edit-toolbar button:disabled { cursor: not-allowed; opacity: .4; }
+.edit-toolbar button svg { width: 16px; }
+.edit-toolbar button span { display: flex; flex-direction: column; align-items: flex-start; font-size: 11px; font-weight: 700; }
+.edit-toolbar button small { color: #9a9f9b; font-family: 'DM Mono'; font-size: 7px; font-weight: 400; }
+.edit-toolbar p { margin: 0 0 0 auto; color: #6f7773; font-size: 10px; }
 .controls { min-height: 88px; display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-top: 1px solid #deddd7; }
 .play-button { width: 47px; height: 47px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #26312d; transition: .2s; }
 .play-button:hover { background: #ef6a38; }
@@ -99,3 +107,4 @@ footer { height: 48px; display: flex; align-items: center; justify-content: spac
 .waveform-label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 760px) { .track-volume { width: 90px; } .track-row .file-name span { display: none; } .track-number { display: none; } }
 @media (max-width: 540px) { .track-volume { display: none; } .track-row { padding-inline: 12px; } .track-row .duration { display: none; } .add-track, .waveform-label { margin-right: 12px; padding-inline: 12px; } }
+@media (max-width: 540px) { .edit-toolbar { flex-wrap: wrap; margin-inline: 14px; } .edit-toolbar button { flex: 1; justify-content: center; padding-inline: 7px; } .edit-toolbar p { width: 100%; margin-left: 0; } }
