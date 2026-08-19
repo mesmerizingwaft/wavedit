@@ -293,6 +293,7 @@ function App() {
   const [clipboard, setClipboard] = useState<AudioClipboard | null>(null)
   const [editMessage, setEditMessage] = useState('')
   const [waveformZoom, setWaveformZoom] = useState(1)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourcesRef = useRef<AudioBufferSourceNode[]>([])
   const effectChainsRef = useRef<Map<string, EffectChain>>(new Map())
@@ -301,6 +302,7 @@ function App() {
   const isLoopingRef = useRef(isLooping)
   const startRef = useRef(start)
   const endRef = useRef(end)
+  const playbackRateRef = useRef(playbackRate)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const duration = tracks.reduce((longest, track) => Math.max(longest, track.buffer.duration), 0)
@@ -316,6 +318,7 @@ function App() {
   }, [])
 
   useEffect(() => { isLoopingRef.current = isLooping }, [isLooping])
+  useEffect(() => { playbackRateRef.current = playbackRate }, [playbackRate])
   useEffect(() => { startRef.current = start; endRef.current = end }, [end, start])
   useEffect(() => {
     const context = audioContextRef.current
@@ -375,6 +378,7 @@ function App() {
       source.loop = isLooping
       source.loopStart = start
       source.loopEnd = end
+      source.playbackRate.value = playbackRate
       effectChainsRef.current.set(track.id, connectEffects(context, source, context.destination, {
         ...effects, volume: effects.volume * track.volume * (track.muted ? 0 : 1),
       }))
@@ -382,13 +386,13 @@ function App() {
       sessionSources.push(source)
     })
     sourcesRef.current = sessionSources
-    startedAtRef.current = context.currentTime - offset
+    startedAtRef.current = context.currentTime - offset / playbackRate
     setCurrentTime(offset); setIsPlaying(true)
     const update = () => {
       const rangeStart = startRef.current
       const rangeEnd = endRef.current
       const rangeDuration = Math.max(MIN_CLIP_SECONDS, rangeEnd - rangeStart)
-      const next = context.currentTime - startedAtRef.current
+      const next = (context.currentTime - startedAtRef.current) * playbackRateRef.current
       if (isLoopingRef.current) {
         setCurrentTime(rangeStart + ((((next - rangeStart) % rangeDuration) + rangeDuration) % rangeDuration))
       } else if (next >= rangeEnd) {
@@ -418,12 +422,12 @@ function App() {
     if (!activeTrack || isExporting) return
     setIsExporting(true)
     try {
-      const blob = await createProcessedWav(activeTrack.buffer, Math.min(start, activeTrack.buffer.duration), Math.min(end, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume })
+      const blob = await createProcessedWav(activeTrack.buffer, Math.min(start, activeTrack.buffer.duration), Math.min(end, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume }, playbackRate)
       const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url
       anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
     } catch { setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。') } finally { setIsExporting(false) }
   }
-  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setWaveformZoom(1) }
+  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setWaveformZoom(1) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', time: number) => {
     if (field === 'start') {
@@ -503,8 +507,9 @@ function App() {
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
         <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><div className="edit-selection"><span>編集範囲 · 選択トラックのみ</span><strong>{activeTrack ? `${formatTime(activeTrack.editStart)} — ${formatTime(activeTrack.editEnd)}` : '—'}</strong></div><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>編集範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
         <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集範囲（ドラッグで指定） · <em>オレンジ</em>：全トラック共通の再生範囲（下の秒数で指定）</span></p>
-        <div className="effect-panel"><div className="effect-heading"><span>マスターエフェクト</span><small>すべてのトラックのプレビューに反映</small></div>
+        <div className="effect-panel"><div className="effect-heading"><span>マスター設定</span><small>プレビューと選択トラックの保存に反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
+          <label className="effect-control"><span>再生速度 <b>{playbackRate.toFixed(2)}×</b></span><input aria-label="再生速度倍率" max="2" min="0.5" onChange={(event) => { stopPlayback(); setPlaybackRate(Number(event.target.value)) }} step="0.05" type="range" value={playbackRate} /><small>プレビューと WAV 保存に反映</small></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
           <label className={`effect-control ${effects.lowpassEnabled ? '' : 'disabled'}`}><span>周波数 <b>{effects.lowpassFrequency.toLocaleString()} Hz</b></span><input disabled={!effects.lowpassEnabled} max="12000" min="200" onChange={(event) => updateEffect('lowpassFrequency', Number(event.target.value))} step="100" type="range" value={effects.lowpassFrequency} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
