@@ -470,15 +470,15 @@ function App() {
   }, [clipboard, copySelection, cutSelection, pasteSelection])
 
   return <>
-    <header className="site-header"><div className="brand"><span className="brand-mark"><Icon name="audio" /></span><span>Wav<span>Edit</span></span></div><div className="header-note">MULTITRACK WAV EDITOR</div></header>
+    <header className="site-header"><div className="brand"><span className="brand-mark"><Icon name="audio" /></span><span>Wav<span>Edit</span></span></div><div className="header-note">BROWSER DAW · NO INSTALL</div></header>
     <main>{!tracks.length ? <section className="landing">
-      <div className="eyebrow">WAV MULTITRACK PLAYER</div><h1>音を、重ねて<br /><em>再生する。</em></h1>
-      <p className="hero-copy">複数の WAV ファイルをブラウザだけで同時再生。<br />ファイルをまとめてドロップして、すぐに始められます。</p>
+      <div className="eyebrow">NO DOWNLOAD · BROWSER DAW</div><h1>ブラウザを、<br /><em>音楽制作の場所に。</em></h1>
+      <p className="hero-copy">ダウンロードもインストールも不要。WAV を重ねて、聴いて、編集して、エフェクトまで。<br />ブラウザを開いたらすぐに使える、気軽なマルチトラック DAW です。</p>
       <div className={`drop-zone ${isDragging ? 'dragging' : ''}`} onClick={() => fileInputRef.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={() => setIsDragging(false)} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && fileInputRef.current?.click()}>
-        <span className="upload-icon"><Icon name="upload" /></span><strong>WAV ファイルをまとめてドロップ</strong><span className="or"><i /> または <i /></span><button type="button">ファイルを選択</button><small>.wav のみ · 複数選択できます · サーバーには送信されません</small>
+        <span className="upload-icon"><Icon name="upload" /></span><strong>WAV ファイルをまとめてドロップ</strong><span className="or"><i /> または <i /></span><button type="button">ファイルを選んで始める</button><small>.wav のみ · 複数選択できます · 音源は端末内で処理されます</small>
       </div>{error && <p className="error">{error}</p>}
     </section> : <section className="workspace">
-      <div className="workspace-heading"><div><div className="eyebrow">{tracks.length} TRACKS LOADED</div><h1>トラックを重ねて<br /><em>再生しましょう。</em></h1></div><button className="new-file" type="button" onClick={reset}><Icon name="close" /> すべて閉じる</button></div>
+      <div className="workspace-heading"><div><div className="eyebrow">BROWSER DAW · {tracks.length} TRACKS</div><h1>アイデアを重ねて、<br /><em>音にしよう。</em></h1></div><button className="new-file" type="button" onClick={reset}><Icon name="close" /> すべて閉じる</button></div>
       <div className="editor-card">
         <div className="track-list">{tracks.map((track, index) => <div className={`track ${activeTrack?.id === track.id ? 'active' : ''}`} key={track.id}>
           <div className="file-row track-row" onClick={() => setActiveTrackId(track.id)}>
@@ -507,7 +507,7 @@ function App() {
       </div>{error && <p className="error">{error}</p>}
     </section>}
     <input accept=".wav,audio/wav" hidden multiple onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void loadFiles(event.target.files, tracks.length > 0); event.target.value = '' }} ref={fileInputRef} type="file" />
-    </main><footer><span>WAVEDIT</span><p>YOUR AUDIO STAYS IN YOUR BROWSER.</p><span>2026</span></footer>
+    </main><footer><span>WAVEDIT</span><p>NO INSTALL. YOUR AUDIO STAYS IN YOUR BROWSER.</p><span>2026</span></footer>
   </>
 }
 
