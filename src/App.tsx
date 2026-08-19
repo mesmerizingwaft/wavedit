@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent, type WheelEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from 'react'
 import { applyEffects, connectEffects, copyAudioRegion, createProcessedWav, cutAudioRegion, formatFileSize, formatTime, pasteAudioRegion, type AudioClipboard, type AudioEffects, type EffectChain } from './audio'
 
 type AudioTrack = {
@@ -61,17 +61,28 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
     pendingScrollRef.current = null
   }, [zoom])
 
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+  const handleWheel = useCallback((event: globalThis.WheelEvent) => {
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
-    const viewport = event.currentTarget
+    const viewport = viewportRef.current
+    if (!viewport) return
     const rect = viewport.getBoundingClientRect()
     const x = event.clientX - rect.left
     const nextZoom = Math.max(1, Math.min(8, zoom * Math.exp(-event.deltaY * 0.01)))
     if (Math.abs(nextZoom - zoom) < 0.001) return
     pendingScrollRef.current = { anchor: viewport.scrollLeft + x, x, previousZoom: zoom }
     onZoomChange(nextZoom)
-  }
+  }, [onZoomChange, zoom])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    // Trackpad pinch is exposed as a ctrl/meta + wheel gesture. React's delegated
+    // wheel listener can be passive, so register directly to reliably stop the
+    // browser from zooming the whole page while the waveform handles the gesture.
+    viewport.addEventListener('wheel', handleWheel, { passive: false })
+    return () => viewport.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
 
   const getTime = useCallback((event: PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -182,7 +193,6 @@ function Waveform({ buffer, start, end, currentTime, duration, zoom, onActivate,
     <div
       aria-label={`波形の表示倍率 ${Math.round(zoom * 100)}%。タッチパッドでピンチして拡大縮小できます。`}
       className="waveform-viewport"
-      onWheel={handleWheel}
       ref={viewportRef}
     >
       <div className="waveform-content" style={{ width: `${zoom * 100}%` }}><canvas
