@@ -56,7 +56,7 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<number | null>(null)
-  const pointsRef = useRef<{ min: number; max: number }[]>([])
+  const waveformRef = useRef<{ buffer: AudioBuffer; duration: number; width: number; points: { min: number; max: number }[] } | null>(null)
   const pendingScrollRef = useRef<{ anchor: number; x: number; previousZoom: number } | null>(null)
 
   useEffect(() => {
@@ -106,107 +106,117 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
   }, [buffer.duration, onEditSelectionChange])
 
   useEffect(() => {
-    const makePoints = () => {
-      const samples = buffer.getChannelData(0)
-      const count = 900
-      const blockSize = Math.max(1, Math.floor(samples.length / count))
-      pointsRef.current = Array.from({ length: count }, (_, index) => {
-        let min = 1
-        let max = -1
-        const offset = index * blockSize
-        for (let sampleIndex = 0; sampleIndex < blockSize; sampleIndex += 1) {
-          const sample = samples[offset + sampleIndex] ?? 0
-          min = Math.min(min, sample)
-          max = Math.max(max, sample)
-        }
-        return { min, max }
-      })
-    }
-    makePoints()
-  }, [buffer])
-
-  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const ratio = window.devicePixelRatio || 1
-    canvas.width = rect.width * ratio
-    canvas.height = rect.height * ratio
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(ratio, ratio)
-    const width = rect.width
-    const height = rect.height
-    const center = height / 2
-    const amplitude = height * 0.38
-    const playbackStartX = (playbackStart / duration) * width
-    const playbackEndX = (playbackEnd / duration) * width
-    const editStartX = (editStart / duration) * width
-    const editEndX = (editEnd / duration) * width
-    const playX = (currentTime / duration) * width
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect()
+      const ratio = window.devicePixelRatio || 1
+      canvas.width = Math.ceil(rect.width * ratio)
+      canvas.height = Math.ceil(rect.height * ratio)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.scale(ratio, ratio)
+      const width = rect.width
+      const height = rect.height
+      const center = height / 2
+      const amplitude = height * 0.38
+      const playbackStartX = (playbackStart / duration) * width
+      const playbackEndX = (playbackEnd / duration) * width
+      const editStartX = (editStart / duration) * width
+      const editEndX = (editEnd / duration) * width
+      const playX = (currentTime / duration) * width
 
-    ctx.clearRect(0, 0, width, height)
-    ctx.fillStyle = '#f7f6f1'
-    ctx.fillRect(0, 0, width, height)
+      ctx.clearRect(0, 0, width, height)
+      ctx.fillStyle = '#f7f6f1'
+      ctx.fillRect(0, 0, width, height)
 
-    ctx.strokeStyle = '#dad9d2'
-    ctx.lineWidth = 1
-    ctx.setLineDash([3, 5])
-    ctx.beginPath()
-    ctx.moveTo(0, center)
-    ctx.lineTo(width, center)
-    ctx.stroke()
-    ctx.setLineDash([])
-
-    pointsRef.current.forEach(({ min, max }, index) => {
-      const x = (index / pointsRef.current.length) * (buffer.duration / duration) * width
-      const isEditSelected = isActive && x >= editStartX && x <= editEndX
-      const isInPlaybackRange = x >= playbackStartX && x <= playbackEndX
-      ctx.fillStyle = isEditSelected ? '#287f8f' : isInPlaybackRange ? '#ef6a38' : '#c2c4bd'
-      ctx.fillRect(x, center + min * amplitude, Math.max(1, width / 1100), Math.max(1, (max - min) * amplitude))
-    })
-
-    ctx.fillStyle = 'rgba(70, 74, 71, 0.12)'
-    ctx.fillRect(0, 0, playbackStartX, height)
-    ctx.fillRect(playbackEndX, 0, width - playbackEndX, height)
-
-    ctx.strokeStyle = '#ef6a38'
-    ctx.lineWidth = 2
-    ctx.strokeRect(playbackStartX, 1, Math.max(0, playbackEndX - playbackStartX), height - 2)
-
-    ;[playbackStartX, playbackEndX].forEach((x) => {
-      ctx.fillStyle = '#ef6a38'
-      ctx.fillRect(x - 5, 0, 10, height)
-      ctx.fillStyle = 'rgba(255,255,255,.9)'
-      ctx.fillRect(x - 1.5, height / 2 - 8, 1, 16)
-      ctx.fillRect(x + 1.5, height / 2 - 8, 1, 16)
-    })
-
-    if (isActive) {
-      ctx.fillStyle = 'rgba(40, 127, 143, .12)'
-      ctx.fillRect(editStartX, 0, Math.max(0, editEndX - editStartX), height)
-      ctx.strokeStyle = '#287f8f'
-      ctx.lineWidth = 2
-      ctx.setLineDash([5, 4])
-      ctx.strokeRect(editStartX, 3, Math.max(0, editEndX - editStartX), height - 6)
-      ctx.setLineDash([])
-    }
-
-    if (currentTime > 0) {
-      ctx.strokeStyle = '#26312d'
-      ctx.lineWidth = 2
+      ctx.strokeStyle = '#dad9d2'
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 5])
       ctx.beginPath()
-      ctx.moveTo(playX, 0)
-      ctx.lineTo(playX, height)
+      ctx.moveTo(0, center)
+      ctx.lineTo(width, center)
       ctx.stroke()
-      ctx.fillStyle = '#26312d'
-      ctx.beginPath()
-      ctx.moveTo(playX - 5, 0)
-      ctx.lineTo(playX + 5, 0)
-      ctx.lineTo(playX, 6)
-      ctx.fill()
+      ctx.setLineDash([])
+
+      // Aggregate the samples represented by each screen pixel. Recomputing these
+      // buckets when the timeline width changes makes zoom alter time-per-pixel,
+      // rather than stretching a fixed, low-resolution waveform bitmap.
+      const samples = buffer.getChannelData(0)
+      const waveformWidth = Math.min(width, (buffer.duration / duration) * width)
+      const columns = Math.max(1, Math.ceil(waveformWidth))
+      const cached = waveformRef.current
+      const points = cached?.buffer === buffer && cached.duration === duration && cached.width === width
+        ? cached.points
+        : Array.from({ length: columns }, (_, column) => {
+          const startSample = Math.floor((column / width) * duration * buffer.sampleRate)
+          const endSample = Math.min(samples.length, Math.max(startSample + 1, Math.ceil(((column + 1) / width) * duration * buffer.sampleRate)))
+          let min = 1
+          let max = -1
+          for (let sampleIndex = startSample; sampleIndex < endSample; sampleIndex += 1) {
+            min = Math.min(min, samples[sampleIndex])
+            max = Math.max(max, samples[sampleIndex])
+          }
+          return { min, max }
+        })
+      waveformRef.current = { buffer, duration, width, points }
+
+      for (let column = 0; column < columns; column += 1) {
+        const { min, max } = points[column]
+        if (max < min) continue
+        const isEditSelected = isActive && column >= editStartX && column <= editEndX
+        const isInPlaybackRange = column >= playbackStartX && column <= playbackEndX
+        ctx.fillStyle = isEditSelected ? '#287f8f' : isInPlaybackRange ? '#ef6a38' : '#c2c4bd'
+        ctx.fillRect(column, center + min * amplitude, 1, Math.max(1, (max - min) * amplitude))
+      }
+
+      ctx.fillStyle = 'rgba(70, 74, 71, 0.12)'
+      ctx.fillRect(0, 0, playbackStartX, height)
+      ctx.fillRect(playbackEndX, 0, width - playbackEndX, height)
+
+      ctx.strokeStyle = '#ef6a38'
+      ctx.lineWidth = 2
+      ctx.strokeRect(playbackStartX, 1, Math.max(0, playbackEndX - playbackStartX), height - 2)
+
+      ;[playbackStartX, playbackEndX].forEach((x) => {
+        ctx.fillStyle = '#ef6a38'
+        ctx.fillRect(x - 5, 0, 10, height)
+        ctx.fillStyle = 'rgba(255,255,255,.9)'
+        ctx.fillRect(x - 1.5, height / 2 - 8, 1, 16)
+        ctx.fillRect(x + 1.5, height / 2 - 8, 1, 16)
+      })
+
+      if (isActive) {
+        ctx.fillStyle = 'rgba(40, 127, 143, .12)'
+        ctx.fillRect(editStartX, 0, Math.max(0, editEndX - editStartX), height)
+        ctx.strokeStyle = '#287f8f'
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 4])
+        ctx.strokeRect(editStartX, 3, Math.max(0, editEndX - editStartX), height - 6)
+        ctx.setLineDash([])
+      }
+
+      if (currentTime > 0) {
+        ctx.strokeStyle = '#26312d'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(playX, 0)
+        ctx.lineTo(playX, height)
+        ctx.stroke()
+        ctx.fillStyle = '#26312d'
+        ctx.beginPath()
+        ctx.moveTo(playX - 5, 0)
+        ctx.lineTo(playX + 5, 0)
+        ctx.lineTo(playX, 6)
+        ctx.fill()
+      }
     }
-  }, [buffer.duration, currentTime, duration, editEnd, editStart, isActive, playbackEnd, playbackStart])
+
+    draw()
+    const observer = new ResizeObserver(draw)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [buffer, currentTime, duration, editEnd, editStart, isActive, playbackEnd, playbackStart, zoom])
 
   return (
     <div
