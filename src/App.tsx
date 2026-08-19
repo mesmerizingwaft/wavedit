@@ -368,9 +368,8 @@ function App() {
     const nextBuffer = cutAudioRegion(context, activeTrack.buffer, start, end)
     setClipboard(copied)
     setTracks((current) => current.map((track) => track.id === activeTrack.id ? { ...track, buffer: nextBuffer } : track))
-    const nextEnd = Math.min(nextBuffer.duration, start + MIN_CLIP_SECONDS)
-    setStart(Math.max(0, nextEnd - MIN_CLIP_SECONDS)); setEnd(nextEnd); setCurrentTime(Math.max(0, nextEnd - MIN_CLIP_SECONDS))
-    setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} を切り取りました。`)
+    setCurrentTime(start)
+    setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} を切り取り、無音にしました。`)
   }, [activeTrack, end, start, stopPlayback])
 
   const pasteSelection = useCallback(() => {
