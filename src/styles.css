@@ -88,9 +88,14 @@ footer { height: 48px; display: flex; align-items: center; justify-content: spac
 @media (max-width: 960px) { .effect-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .effect-heading { grid-column: 1 / -1; } }
 @media (max-width: 540px) { .effect-panel { gap: 13px; padding-inline: 14px; } .selection-fields { gap: 9px; } .field-rule { display: none; } .selection-fields input { width: 76px; } }
 .track-list { border-bottom: 1px solid #deddd7; }
+.track { border-bottom: 1px solid #deddd7; transition: background .18s ease, box-shadow .18s ease; }
+.track:last-child { border-bottom: 0; }
+.track.active { background: rgba(239,106,56,.04); box-shadow: inset 3px 0 #ef6a38; }
 .track-row { min-height: 68px; cursor: pointer; transition: background .18s ease, box-shadow .18s ease; }
 .track-row:hover { background: rgba(255,255,255,.55); }
-.track-row.active { background: rgba(239,106,56,.055); box-shadow: inset 3px 0 #ef6a38; }
+.track-waveform { padding: 0 22px 17px 102px; }
+.track-waveform .waveform-canvas { height: 112px; }
+.track-waveform .time-axis { padding-top: 6px; }
 .track-number { width: 30px; color: #a1a6a2; font-family: 'DM Mono'; font-size: 10px; }
 .track-volume { width: 132px; display: flex; flex-direction: column; gap: 4px; margin-left: auto; color: #858c88; font-family: 'DM Mono'; font-size: 8px; }
 .track-volume input { width: 100%; accent-color: #ef6a38; cursor: pointer; }
@@ -106,5 +111,5 @@ footer { height: 48px; display: flex; align-items: center; justify-content: spac
 .waveform-label span { color: #ef6a38; font-family: 'DM Mono'; font-size: 8px; letter-spacing: 1px; }
 .waveform-label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 760px) { .track-volume { width: 90px; } .track-row .file-name span { display: none; } .track-number { display: none; } }
-@media (max-width: 540px) { .track-volume { display: none; } .track-row { padding-inline: 12px; } .track-row .duration { display: none; } .add-track, .waveform-label { margin-right: 12px; padding-inline: 12px; } }
+@media (max-width: 540px) { .track-volume { display: none; } .track-row { padding-inline: 12px; } .track-row .duration { display: none; } .track-waveform { padding: 0 12px 14px; } .add-track, .waveform-label { margin-right: 12px; padding-inline: 12px; } }
 @media (max-width: 540px) { .edit-toolbar { flex-wrap: wrap; margin-inline: 14px; } .edit-toolbar button { flex: 1; justify-content: center; padding-inline: 7px; } .edit-toolbar p { width: 100%; margin-left: 0; } }
