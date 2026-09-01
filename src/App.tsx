@@ -402,7 +402,10 @@ function App() {
     const context = audioContextRef.current ?? new AudioContext()
     audioContextRef.current = context
     void context.resume()
-    const offset = currentTime >= start && currentTime < end ? currentTime : start
+    // A new playback session always begins at the left edge of the selected
+    // playback range. This also makes resuming via the play button predictable:
+    // pausing and pressing play again previews the same selection from its start.
+    const offset = start
     const sessionSources: AudioBufferSourceNode[] = []
     effectChainsRef.current.clear()
     tracks.forEach((track) => {
