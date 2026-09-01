@@ -45,6 +45,13 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .waveform-viewport::-webkit-scrollbar-track { border-radius: 999px; background: #e4e3dd; }
 .waveform-viewport::-webkit-scrollbar-thumb { border: 2px solid #e4e3dd; border-radius: 999px; background: #ef6a38; }
 .waveform-content { min-width: 100%; }
+.frame-ruler { height: 31px; display: flex; overflow: hidden; border: 1px solid #d5d6d0; border-bottom: 0; background: #eeede7; }
+.frame-ruler button { position: relative; min-width: 1px; height: 30px; flex: 0 0 auto; overflow: hidden; padding: 0; border-right: 1px solid rgba(126,134,128,.35); color: #737b76; background: rgba(255,255,255,.55); font-family: 'DM Mono'; font-size: 7px; line-height: 30px; text-align: center; }
+.frame-ruler button:nth-child(5n + 1) { border-left: 1px solid #7e8680; }
+.frame-ruler button:hover:not(:disabled) { z-index: 1; color: #287f8f; background: #d9eef0; box-shadow: inset 0 -3px #287f8f; }
+.frame-ruler button.selected { color: #fff; background: #287f8f; }
+.frame-ruler button:disabled { cursor: default; opacity: .3; }
+.frame-ruler button span { display: block; min-width: 20px; transform: translateX(calc((100% - 20px) / 2)); pointer-events: none; }
 .waveform-canvas { width: 100%; height: 194px; display: block; cursor: col-resize; touch-action: none; }
 .time-axis { display: flex; justify-content: space-between; padding-top: 9px; color: #989e9a; font-family: 'DM Mono'; font-size: 9px; }
 .wave-help { display: flex; align-items: center; gap: 5px; margin: 13px 22px 21px; color: #9a9f9b; font-size: 10px; }
@@ -96,6 +103,7 @@ footer { height: 48px; display: flex; align-items: center; justify-content: spac
 .effect-control b { color: #ef6a38; font-weight: 600; }
 .effect-control input[type='range'] { width: 100%; accent-color: #ef6a38; cursor: pointer; }
 .effect-control input[type='checkbox'] { accent-color: #ef6a38; vertical-align: -2px; }
+.frame-rate-control input { width: 100%; min-height: 29px; padding: 4px 7px; border: 1px solid #d5d6d0; border-radius: 2px; color: #26312d; background: rgba(255,255,255,.55); font-family: 'DM Mono'; }
 .effect-control.disabled { opacity: .45; }
 .selection-fields input { width: 84px; padding: 5px 6px; border: 1px solid #d5d6d0; border-radius: 2px; color: #26312d; background: rgba(255,255,255,.55); font-family: 'DM Mono'; font-size: 12px; }
 .download-button:disabled { cursor: wait; opacity: .72; transform: none; }
