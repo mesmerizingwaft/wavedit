@@ -81,12 +81,15 @@ h1 em { color: #ef6a38; font-family: 'Playfair Display', serif; font-weight: 600
 .selection-fields span { font-size: 9px; letter-spacing: 1px; }
 .selection-fields strong { font-family: 'DM Mono'; font-size: 13px; font-weight: 500; }
 .field-rule { height: 29px; border-left: 1px solid #deddd7; }
-.download-button { display: flex; align-items: center; gap: 10px; margin-left: 8px; padding: 11px 18px; border-radius: 3px; color: white; background: #ef6a38; text-align: left; transition: .2s; }
+.export-controls { display: flex; align-items: flex-end; flex-direction: column; gap: 7px; margin-left: 8px; }
+.export-selection { display: flex; align-items: center; gap: 6px; color: #66706b; font-size: 10px; cursor: pointer; white-space: nowrap; }
+.export-selection input { margin: 0; accent-color: #ef6a38; cursor: pointer; }
+.download-button { display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 3px; color: white; background: #ef6a38; text-align: left; transition: .2s; }
 .download-button:hover { background: #da582a; transform: translateY(-1px); }
 .download-button span { display: flex; flex-direction: column; font-size: 12px; font-weight: 700; }
 .download-button small { margin-top: 2px; color: rgba(255,255,255,.65); font-size: 9px; font-weight: 500; }
 footer { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-top: 1px solid #deddd7; color: #a0a5a2; font-size: 9px; letter-spacing: 1px; }
-@media (max-width: 760px) { main { padding-top: 5vh; } .header-note { display: none; } h1 { font-size: 44px; } .hero-copy br { display: none; } .workspace-heading h1 { font-size: 38px; } .waveform-canvas { height: 154px; } .controls { flex-wrap: wrap; } .selection-fields { order: 3; width: 100%; margin: 4px 0 0; justify-content: space-between; } .download-button { margin-left: auto; } footer p { display: none; } }
+@media (max-width: 760px) { main { padding-top: 5vh; } .header-note { display: none; } h1 { font-size: 44px; } .hero-copy br { display: none; } .workspace-heading h1 { font-size: 38px; } .waveform-canvas { height: 154px; } .controls { flex-wrap: wrap; } .selection-fields { order: 3; width: 100%; margin: 4px 0 0; justify-content: space-between; } .export-controls { margin-left: auto; } footer p { display: none; } }
 @media (max-width: 420px) { .download-button { padding: 10px 12px; } .loop-button span { display: none; } .play-time { width: 86px; } .waveform-wrap { padding-inline: 14px; } .file-row, .controls { padding-inline: 14px; } }
 .effect-panel { display: grid; grid-template-columns: minmax(150px, 1.1fr) repeat(4, minmax(125px, 1fr)); gap: 16px; padding: 16px 22px; border-top: 1px solid #deddd7; background: rgba(247,246,241,.54); }
 .effect-heading, .effect-control { display: flex; flex-direction: column; justify-content: center; gap: 7px; }

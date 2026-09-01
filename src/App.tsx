@@ -290,6 +290,7 @@ function App() {
   const [error, setError] = useState('')
   const [effects, setEffects] = useState(DEFAULT_EFFECTS)
   const [isExporting, setIsExporting] = useState(false)
+  const [exportSelectionOnly, setExportSelectionOnly] = useState(true)
   const [clipboard, setClipboard] = useState<AudioClipboard | null>(null)
   const [editMessage, setEditMessage] = useState('')
   const [waveformZoom, setWaveformZoom] = useState(1)
@@ -422,12 +423,14 @@ function App() {
     if (!activeTrack || isExporting) return
     setIsExporting(true)
     try {
-      const blob = await createProcessedWav(activeTrack.buffer, Math.min(start, activeTrack.buffer.duration), Math.min(end, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume }, playbackRate)
+      const exportStart = exportSelectionOnly ? activeTrack.editStart : start
+      const exportEnd = exportSelectionOnly ? activeTrack.editEnd : end
+      const blob = await createProcessedWav(activeTrack.buffer, Math.min(exportStart, activeTrack.buffer.duration), Math.min(exportEnd, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume }, playbackRate)
       const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url
       anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
     } catch { setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。') } finally { setIsExporting(false) }
   }
-  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setWaveformZoom(1) }
+  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setWaveformZoom(1); setExportSelectionOnly(true) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', time: number) => {
     if (field === 'start') {
@@ -517,7 +520,7 @@ function App() {
         </div>
         <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-label="停止して再生開始位置に戻る" className="stop-button" onClick={() => stopPlayback(true)} type="button"><Icon name="stop" /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
           <div className="selection-fields"><label><span>再生 START · 秒</span><PlaybackTimeInput ariaLabel="再生開始位置（秒）" key={`start-${start}`} max={Math.max(0, end - MIN_CLIP_SECONDS)} min={0} onCommit={(value) => updateTime('start', value)} value={start} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><PlaybackTimeInput ariaLabel="再生終了位置（秒）" key={`end-${end}`} max={duration} min={start + MIN_CLIP_SECONDS} onCommit={(value) => updateTime('end', value)} value={end} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
-          <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>WAV でダウンロード</small></span></button>
+          <div className="export-controls"><label className="export-selection"><input checked={exportSelectionOnly} onChange={(event) => setExportSelectionOnly(event.target.checked)} type="checkbox" /><span>選択範囲のみを保存する</span></label><button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>{exportSelectionOnly ? '選択範囲を WAV でダウンロード' : '再生範囲を WAV でダウンロード'}</small></span></button></div>
         </div>
       </div>{error && <p className="error">{error}</p>}
     </section>}
