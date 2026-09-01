@@ -39,7 +39,7 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'stop' | 'download
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
 
-function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, currentTime, duration, zoom, isActive, onActivate, onEditSelectionChange, onZoomChange }: {
+function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, currentTime, duration, zoom, frameRate, isActive, onActivate, onEditSelectionChange, onZoomChange }: {
   buffer: AudioBuffer
   playbackStart: number
   playbackEnd: number
@@ -48,6 +48,7 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
   currentTime: number
   duration: number
   zoom: number
+  frameRate: number
   isActive: boolean
   onActivate: () => void
   onEditSelectionChange: (start: number, end: number) => void
@@ -58,6 +59,21 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
   const dragStartRef = useRef<number | null>(null)
   const waveformRef = useRef<{ buffer: AudioBuffer; duration: number; width: number; points: { min: number; max: number }[] } | null>(null)
   const pendingScrollRef = useRef<{ anchor: number; x: number; previousZoom: number } | null>(null)
+  const frameAnchorRef = useRef<number | null>(null)
+  const frameCount = Math.max(1, Math.ceil(duration * frameRate))
+
+  useEffect(() => { frameAnchorRef.current = null }, [frameRate])
+
+  const selectFrame = (frame: number) => {
+    onActivate()
+    const anchor = frameAnchorRef.current
+    const leftFrame = anchor === null ? frame : Math.min(anchor, frame)
+    const rightFrame = anchor === null ? frame : Math.max(anchor, frame)
+    const nextStart = Math.min(buffer.duration, leftFrame / frameRate)
+    const nextEnd = Math.min(buffer.duration, (rightFrame + 1) / frameRate)
+    if (nextEnd > nextStart) onEditSelectionChange(nextStart, nextEnd)
+    frameAnchorRef.current = anchor === null ? frame : null
+  }
 
   useEffect(() => {
     const pending = pendingScrollRef.current
@@ -224,7 +240,26 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
       className="waveform-viewport"
       ref={viewportRef}
     >
-      <div className="waveform-content" style={{ width: `${zoom * 100}%` }}><canvas
+      <div className="waveform-content" style={{ width: `${zoom * 100}%` }}>
+        <div aria-label={`${frameRate} fps のフレームメモリ`} className="frame-ruler" role="toolbar">
+          {Array.from({ length: frameCount }, (_, frame) => {
+            const frameStart = frame / frameRate
+            const frameEnd = Math.min(duration, (frame + 1) / frameRate)
+            const selected = isActive && frameStart < editEnd && frameEnd > editStart
+            return <button
+              aria-label={`フレーム ${frame}: ${frameStart.toFixed(3)} 秒から ${frameEnd.toFixed(3)} 秒`}
+              aria-pressed={selected}
+              className={selected ? 'selected' : ''}
+              disabled={frameStart >= buffer.duration}
+              key={frame}
+              onClick={() => selectFrame(frame)}
+              style={{ width: `${100 / frameCount}%` }}
+              title={`Frame ${frame} · ${frameStart.toFixed(3)}s`}
+              type="button"
+            ><span>{frame}</span></button>
+          })}
+        </div>
+        <canvas
       aria-label="波形エディター。波形上をドラッグして、このトラックだけのコピー・切り取り範囲を指定できます。"
       className="waveform-canvas"
       onPointerDown={(event) => {
@@ -294,6 +329,7 @@ function App() {
   const [editMessage, setEditMessage] = useState('')
   const [waveformZoom, setWaveformZoom] = useState(1)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [frameRate, setFrameRate] = useState(30)
   const audioContextRef = useRef<AudioContext | null>(null)
   const sourcesRef = useRef<AudioBufferSourceNode[]>([])
   const effectChainsRef = useRef<Map<string, EffectChain>>(new Map())
@@ -427,7 +463,7 @@ function App() {
       anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
     } catch { setError('クリップを処理できませんでした。設定を変更してもう一度お試しください。') } finally { setIsExporting(false) }
   }
-  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setWaveformZoom(1) }
+  const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setFrameRate(30); setWaveformZoom(1) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', time: number) => {
     if (field === 'start') {
@@ -502,14 +538,15 @@ function App() {
             <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
             <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
           </div>
-          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} editEnd={track.editEnd} editStart={track.editStart} isActive={activeTrack?.id === track.id} onActivate={() => setActiveTrackId(track.id)} onEditSelectionChange={(editStart, editEnd) => updateEditSelection(track.id, editStart, editEnd)} onZoomChange={setWaveformZoom} playbackEnd={end} playbackStart={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
+          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} editEnd={track.editEnd} editStart={track.editStart} frameRate={frameRate} isActive={activeTrack?.id === track.id} onActivate={() => setActiveTrackId(track.id)} onEditSelectionChange={(editStart, editEnd) => updateEditSelection(track.id, editStart, editEnd)} onZoomChange={setWaveformZoom} playbackEnd={end} playbackStart={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
         <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><div className="edit-selection"><span>編集範囲 · 選択トラックのみ</span><strong>{activeTrack ? `${formatTime(activeTrack.editStart)} — ${formatTime(activeTrack.editEnd)}` : '—'}</strong></div><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>編集範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
-        <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集範囲（ドラッグで指定） · <em>オレンジ</em>：全トラック共通の再生範囲（下の秒数で指定）</span></p>
+        <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集範囲（波形のドラッグ、または上のフレームを2つクリック） · <em>オレンジ</em>：全トラック共通の再生範囲（下の秒数で指定）</span></p>
         <div className="effect-panel"><div className="effect-heading"><span>マスター設定</span><small>プレビューと選択トラックの保存に反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control"><span>再生速度 <b>{playbackRate.toFixed(2)}×</b></span><input aria-label="再生速度倍率" max="2" min="0.5" onChange={(event) => { stopPlayback(); setPlaybackRate(Number(event.target.value)) }} step="0.05" type="range" value={playbackRate} /><small>プレビューと WAV 保存に反映</small></label>
+          <label className="effect-control frame-rate-control"><span>フレームレート <b>{frameRate} fps</b></span><input aria-label="フレームレート" max="120" min="1" onChange={(event) => setFrameRate(Math.max(1, Math.min(120, Number(event.target.value) || 1)))} step="1" type="number" value={frameRate} /><small>波形上部のメモリに反映</small></label>
           <label className="effect-control toggle-control"><span><input checked={effects.lowpassEnabled} onChange={(event) => updateEffect('lowpassEnabled', event.target.checked)} type="checkbox" /> ローパス</span><small>高音をカット</small></label>
           <label className={`effect-control ${effects.lowpassEnabled ? '' : 'disabled'}`}><span>周波数 <b>{effects.lowpassFrequency.toLocaleString()} Hz</b></span><input disabled={!effects.lowpassEnabled} max="12000" min="200" onChange={(event) => updateEffect('lowpassFrequency', Number(event.target.value))} step="100" type="range" value={effects.lowpassFrequency} /></label>
           <label className="effect-control toggle-control"><span><input checked={effects.reverbEnabled} onChange={(event) => updateEffect('reverbEnabled', event.target.checked)} type="checkbox" /> リバーブ</span><small>残響を追加</small></label>
