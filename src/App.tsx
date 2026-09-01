@@ -7,8 +7,8 @@ type AudioTrack = {
   buffer: AudioBuffer
   volume: number
   muted: boolean
-  editStart: number
-  editEnd: number
+  editStart: number | null
+  editEnd: number | null
 }
 
 const MIN_CLIP_SECONDS = 0.03
@@ -39,12 +39,10 @@ function Icon({ name }: { name: 'upload' | 'play' | 'pause' | 'stop' | 'download
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>
 }
 
-function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, currentTime, duration, zoom, frameRate, isActive, onActivate, onEditSelectionChange, onZoomChange }: {
+function Waveform({ buffer, editStart, editEnd, currentTime, duration, zoom, frameRate, isActive, onActivate, onEditSelectionChange, onZoomChange }: {
   buffer: AudioBuffer
-  playbackStart: number
-  playbackEnd: number
-  editStart: number
-  editEnd: number
+  editStart: number | null
+  editEnd: number | null
   currentTime: number
   duration: number
   zoom: number
@@ -136,10 +134,8 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
       const height = rect.height
       const center = height / 2
       const amplitude = height * 0.38
-      const playbackStartX = (playbackStart / duration) * width
-      const playbackEndX = (playbackEnd / duration) * width
-      const editStartX = (editStart / duration) * width
-      const editEndX = (editEnd / duration) * width
+      const editStartX = editStart === null ? 0 : (editStart / duration) * width
+      const editEndX = editEnd === null ? 0 : (editEnd / duration) * width
       const playX = (currentTime / duration) * width
 
       ctx.clearRect(0, 0, width, height)
@@ -180,29 +176,12 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
       for (let column = 0; column < columns; column += 1) {
         const { min, max } = points[column]
         if (max < min) continue
-        const isEditSelected = isActive && column >= editStartX && column <= editEndX
-        const isInPlaybackRange = column >= playbackStartX && column <= playbackEndX
-        ctx.fillStyle = isEditSelected ? '#287f8f' : isInPlaybackRange ? '#ef6a38' : '#c2c4bd'
+        const isEditSelected = isActive && editStart !== null && editEnd !== null && column >= editStartX && column <= editEndX
+        ctx.fillStyle = isEditSelected ? '#287f8f' : '#c2c4bd'
         ctx.fillRect(column, center + min * amplitude, 1, Math.max(1, (max - min) * amplitude))
       }
 
-      ctx.fillStyle = 'rgba(70, 74, 71, 0.12)'
-      ctx.fillRect(0, 0, playbackStartX, height)
-      ctx.fillRect(playbackEndX, 0, width - playbackEndX, height)
-
-      ctx.strokeStyle = '#ef6a38'
-      ctx.lineWidth = 2
-      ctx.strokeRect(playbackStartX, 1, Math.max(0, playbackEndX - playbackStartX), height - 2)
-
-      ;[playbackStartX, playbackEndX].forEach((x) => {
-        ctx.fillStyle = '#ef6a38'
-        ctx.fillRect(x - 5, 0, 10, height)
-        ctx.fillStyle = 'rgba(255,255,255,.9)'
-        ctx.fillRect(x - 1.5, height / 2 - 8, 1, 16)
-        ctx.fillRect(x + 1.5, height / 2 - 8, 1, 16)
-      })
-
-      if (isActive) {
+      if (isActive && editStart !== null && editEnd !== null) {
         ctx.fillStyle = 'rgba(40, 127, 143, .12)'
         ctx.fillRect(editStartX, 0, Math.max(0, editEndX - editStartX), height)
         ctx.strokeStyle = '#287f8f'
@@ -232,7 +211,7 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
     const observer = new ResizeObserver(draw)
     observer.observe(canvas)
     return () => observer.disconnect()
-  }, [buffer, currentTime, duration, editEnd, editStart, isActive, playbackEnd, playbackStart, zoom])
+  }, [buffer, currentTime, duration, editEnd, editStart, isActive, zoom])
 
   return (
     <div
@@ -245,7 +224,7 @@ function Waveform({ buffer, playbackStart, playbackEnd, editStart, editEnd, curr
           {Array.from({ length: frameCount }, (_, frame) => {
             const frameStart = frame / frameRate
             const frameEnd = Math.min(duration, (frame + 1) / frameRate)
-            const selected = isActive && frameStart < editEnd && frameEnd > editStart
+            const selected = isActive && editStart !== null && editEnd !== null && frameStart < editEnd && frameEnd > editStart
             return <button
               aria-label={`フレーム ${frame}: ${frameStart.toFixed(3)} 秒から ${frameEnd.toFixed(3)} 秒`}
               aria-pressed={selected}
@@ -381,10 +360,9 @@ function App() {
         buffer: await context.decodeAudioData(await file.arrayBuffer()),
         volume: 1,
         muted: false,
-        editStart: 0,
-        editEnd: 0,
+        editStart: null,
+        editEnd: null,
       })))
-      loaded.forEach((track) => { track.editEnd = track.buffer.duration })
       setTracks((current) => {
         const next = append ? [...current, ...loaded] : loaded
         const nextDuration = next.reduce((value, track) => Math.max(value, track.buffer.duration), 0)
@@ -402,10 +380,11 @@ function App() {
     const context = audioContextRef.current ?? new AudioContext()
     audioContextRef.current = context
     void context.resume()
-    // A new playback session always begins at the left edge of the selected
-    // playback range. This also makes resuming via the play button predictable:
-    // pausing and pressing play again previews the same selection from its start.
-    const offset = start
+    const rangeStart = activeTrack?.editStart ?? 0
+    const rangeEnd = activeTrack?.editEnd ?? duration
+    startRef.current = rangeStart
+    endRef.current = rangeEnd
+    const offset = currentTime >= rangeStart && currentTime < rangeEnd ? currentTime : rangeStart
     const sessionSources: AudioBufferSourceNode[] = []
     effectChainsRef.current.clear()
     tracks.forEach((track) => {
@@ -416,8 +395,8 @@ function App() {
         source.buffer = padded
       } else source.buffer = track.buffer
       source.loop = isLooping
-      source.loopStart = start
-      source.loopEnd = end
+      source.loopStart = rangeStart
+      source.loopEnd = rangeEnd
       source.playbackRate.value = playbackRate
       effectChainsRef.current.set(track.id, connectEffects(context, source, context.destination, {
         ...effects, volume: effects.volume * track.volume * (track.muted ? 0 : 1),
@@ -446,7 +425,13 @@ function App() {
 
   const updateSelection = (nextStart: number, nextEnd: number) => { stopPlayback(); setStart(nextStart); setEnd(nextEnd); setCurrentTime(nextStart) }
   const updateEditSelection = (id: string, editStart: number, editEnd: number) => {
+    updateSelection(editStart, editEnd)
     setTracks((current) => current.map((track) => track.id === id ? { ...track, editStart, editEnd } : track))
+  }
+  const activateTrack = (track: AudioTrack) => {
+    setActiveTrackId(track.id)
+    if (track.editStart !== null && track.editEnd !== null) updateSelection(track.editStart, track.editEnd)
+    else updateSelection(0, duration)
   }
   const updateTrack = (id: string, changes: Partial<Pick<AudioTrack, 'volume' | 'muted'>>) => setTracks((current) => current.map((track) => track.id === id ? { ...track, ...changes } : track))
   const removeTrack = (id: string) => {
@@ -462,8 +447,9 @@ function App() {
     if (!activeTrack || isExporting) return
     setIsExporting(true)
     try {
-      const exportStart = exportSelectionOnly ? activeTrack.editStart : start
-      const exportEnd = exportSelectionOnly ? activeTrack.editEnd : end
+      const hasSelection = activeTrack.editStart !== null && activeTrack.editEnd !== null
+      const exportStart = exportSelectionOnly && hasSelection ? activeTrack.editStart! : 0
+      const exportEnd = exportSelectionOnly && hasSelection ? activeTrack.editEnd! : activeTrack.buffer.duration
       const blob = await createProcessedWav(activeTrack.buffer, Math.min(exportStart, activeTrack.buffer.duration), Math.min(exportEnd, activeTrack.buffer.duration), { ...effects, volume: effects.volume * activeTrack.volume }, playbackRate)
       const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url
       anchor.download = `${activeTrack.file.name.replace(/\.wav$/i, '')}-clip.wav`; anchor.click(); URL.revokeObjectURL(url)
@@ -472,26 +458,27 @@ function App() {
   const reset = () => { stopPlayback(); setTracks([]); setActiveTrackId(''); setCurrentTime(0); setStart(0); setEnd(0); setError(''); setEffects(DEFAULT_EFFECTS); setPlaybackRate(1); setFrameRate(30); setWaveformZoom(1); setExportSelectionOnly(true) }
   const updateEffect = <Key extends keyof AudioEffects>(key: Key, value: AudioEffects[Key]) => setEffects((current) => ({ ...current, [key]: value }))
   const updateTime = (field: 'start' | 'end', time: number) => {
+    if (!activeTrack || activeTrack.editStart === null || activeTrack.editEnd === null) return field === 'start' ? start : end
     if (field === 'start') {
       const nextStart = Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS))
-      updateSelection(nextStart, end)
+      updateEditSelection(activeTrack.id, nextStart, end)
       return nextStart
     }
     const nextEnd = Math.min(duration, Math.max(time, start + MIN_CLIP_SECONDS))
-    updateSelection(start, nextEnd)
+    updateEditSelection(activeTrack.id, start, nextEnd)
     return nextEnd
   }
   const handleDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setIsDragging(false); void loadFiles(event.dataTransfer.files, tracks.length > 0) }
 
   const copySelection = useCallback(() => {
-    if (!activeTrack) return
+    if (!activeTrack || activeTrack.editStart === null || activeTrack.editEnd === null) { setEditMessage('コピーできる範囲を選択してください。'); return }
     const copied = copyAudioRegion(activeTrack.buffer, activeTrack.editStart, Math.min(activeTrack.editEnd, activeTrack.buffer.duration))
     if (!copied) { setEditMessage('コピーできる範囲を選択してください。'); return }
     setClipboard(copied); setEditMessage(`${formatTime(copied.channels[0].length / copied.sampleRate)} をコピーしました。`)
   }, [activeTrack])
 
   const cutSelection = useCallback(() => {
-    if (!activeTrack) return
+    if (!activeTrack || activeTrack.editStart === null || activeTrack.editEnd === null) { setEditMessage('切り取れる範囲を選択してください。'); return }
     const copied = copyAudioRegion(activeTrack.buffer, activeTrack.editStart, Math.min(activeTrack.editEnd, activeTrack.buffer.duration))
     if (!copied) { setEditMessage('切り取れる範囲を選択してください。'); return }
     stopPlayback()
@@ -504,7 +491,7 @@ function App() {
   }, [activeTrack, stopPlayback])
 
   const pasteSelection = useCallback(() => {
-    if (!activeTrack || !clipboard) return
+    if (!activeTrack || !clipboard || activeTrack.editStart === null) return
     stopPlayback()
     const context = audioContextRef.current ?? new AudioContext(); audioContextRef.current = context
     const at = Math.min(activeTrack.editStart, activeTrack.buffer.duration)
@@ -537,18 +524,18 @@ function App() {
       <div className="workspace-heading"><div><div className="eyebrow">BROWSER DAW · {tracks.length} TRACKS</div><h1>アイデアを重ねて、<br /><em>音にしよう。</em></h1></div><button className="new-file" type="button" onClick={reset}><Icon name="close" /> すべて閉じる</button></div>
       <div className="editor-card">
         <div className="track-list">{tracks.map((track, index) => <div className={`track ${activeTrack?.id === track.id ? 'active' : ''}`} key={track.id}>
-          <div className="file-row track-row" onClick={() => setActiveTrackId(track.id)}>
+          <div className="file-row track-row" onClick={() => activateTrack(track)}>
             <div className="track-number">{String(index + 1).padStart(2, '0')}</div><div className="file-icon"><Icon name="audio" /></div>
             <div className="file-name"><strong>{track.file.name}</strong><span>{formatFileSize(track.file.size)} · {track.buffer.sampleRate.toLocaleString()} Hz · {track.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</span></div>
             <label className="track-volume" onClick={(event) => event.stopPropagation()}><span>VOL {Math.round(track.volume * 100)}%</span><input aria-label={`${track.file.name} の音量`} max="100" min="0" onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) / 100 })} type="range" value={track.volume * 100} /></label>
             <button aria-pressed={track.muted} className={`mute-button ${track.muted ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }} type="button">M</button>
             <span className="duration">{formatTime(track.buffer.duration, true)}</span><button aria-label={`${track.file.name} を削除`} className="remove-track" onClick={(event) => { event.stopPropagation(); removeTrack(track.id) }} type="button"><Icon name="close" /></button>
           </div>
-          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} editEnd={track.editEnd} editStart={track.editStart} frameRate={frameRate} isActive={activeTrack?.id === track.id} onActivate={() => setActiveTrackId(track.id)} onEditSelectionChange={(editStart, editEnd) => updateEditSelection(track.id, editStart, editEnd)} onZoomChange={setWaveformZoom} playbackEnd={end} playbackStart={start} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
+          <div className="track-waveform"><Waveform buffer={track.buffer} currentTime={currentTime} duration={duration} editEnd={track.editEnd} editStart={track.editStart} frameRate={frameRate} isActive={activeTrack?.id === track.id} onActivate={() => activateTrack(track)} onEditSelectionChange={(editStart, editEnd) => updateEditSelection(track.id, editStart, editEnd)} onZoomChange={setWaveformZoom} zoom={waveformZoom} /><div className="time-axis"><span>0:00</span><span>{formatTime(duration / 2, true)}</span><span>{formatTime(duration, true)}</span></div></div>
         </div>)}</div>
         <button className="add-track" onClick={() => fileInputRef.current?.click()} type="button"><Icon name="plus" /> トラックを追加</button>
-        <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><div className="edit-selection"><span>編集範囲 · 選択トラックのみ</span><strong>{activeTrack ? `${formatTime(activeTrack.editStart)} — ${formatTime(activeTrack.editEnd)}` : '—'}</strong></div><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>編集範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
-        <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集範囲（波形のドラッグ、または上のフレームを2つクリック） · <em>オレンジ</em>：全トラック共通の再生範囲（下の秒数で指定）</span></p>
+        <div className="edit-toolbar" role="toolbar" aria-label="波形編集"><div className="edit-selection"><span>編集・再生範囲 · 選択トラック</span><strong>{activeTrack?.editStart !== null && activeTrack?.editStart !== undefined && activeTrack.editEnd !== null ? `${formatTime(activeTrack.editStart)} — ${formatTime(activeTrack.editEnd)}` : '未選択'}</strong></div><button onClick={copySelection} type="button"><Icon name="copy" /><span>コピー<small>⌘/Ctrl+C</small></span></button><button onClick={cutSelection} type="button"><Icon name="scissors" /><span>切り取り<small>⌘/Ctrl+X</small></span></button><button disabled={!clipboard || activeTrack?.editStart === null} onClick={pasteSelection} type="button"><Icon name="paste" /><span>貼り付け<small>編集範囲の先頭へ</small></span></button>{editMessage && <p aria-live="polite">{editMessage}</p>}</div>
+        <p className="wave-help"><Icon name="scissors" /> <span><b>青</b>：選択トラックの編集・再生範囲（波形のドラッグ、または上のフレームをクリック） · 未選択時は全体を再生します</span></p>
         <div className="effect-panel"><div className="effect-heading"><span>マスター設定</span><small>プレビューと選択トラックの保存に反映</small></div>
           <label className="effect-control"><span>音量 <b>{Math.round(effects.volume * 100)}%</b></span><input max="100" min="0" onChange={(event) => updateEffect('volume', Number(event.target.value) / 100)} type="range" value={effects.volume * 100} /></label>
           <label className="effect-control"><span>再生速度 <b>{playbackRate.toFixed(2)}×</b></span><input aria-label="再生速度倍率" max="2" min="0.5" onChange={(event) => { stopPlayback(); setPlaybackRate(Number(event.target.value)) }} step="0.05" type="range" value={playbackRate} /><small>プレビューと WAV 保存に反映</small></label>
@@ -559,9 +546,9 @@ function App() {
           <label className={`effect-control ${effects.reverbEnabled ? '' : 'disabled'}`}><span>深さ <b>{Math.round(effects.reverbMix * 100)}%</b></span><input disabled={!effects.reverbEnabled} max="70" min="0" onChange={(event) => updateEffect('reverbMix', Number(event.target.value) / 100)} type="range" value={effects.reverbMix * 100} /></label>
         </div>
         <div className="controls"><button aria-label={isPlaying ? '一時停止' : '再生'} className="play-button" onClick={play} type="button"><Icon name={isPlaying ? 'pause' : 'play'} /></button><button aria-label="停止して再生開始位置に戻る" className="stop-button" onClick={() => stopPlayback(true)} type="button"><Icon name="stop" /></button><button aria-pressed={isLooping} className={`loop-button ${isLooping ? 'active' : ''}`} onClick={() => { stopPlayback(); setIsLooping((current) => !current) }} type="button"><Icon name="loop" /><span>LOOP</span></button><div className="play-time"><strong>{formatTime(currentTime, true)}</strong><span>/ {formatTime(duration, true)}</span></div>
-          <div className="selection-fields"><label><span>再生 START · 秒</span><PlaybackTimeInput ariaLabel="再生開始位置（秒）" key={`start-${start}`} max={Math.max(0, end - MIN_CLIP_SECONDS)} min={0} onCommit={(value) => updateTime('start', value)} value={start} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><PlaybackTimeInput ariaLabel="再生終了位置（秒）" key={`end-${end}`} max={duration} min={start + MIN_CLIP_SECONDS} onCommit={(value) => updateTime('end', value)} value={end} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div>
-          <label className="export-selection"><input checked={exportSelectionOnly} onChange={(event) => setExportSelectionOnly(event.target.checked)} type="checkbox" /> <span>選択範囲のみを保存</span></label>
-          <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>{exportSelectionOnly ? '選択範囲を WAV でダウンロード' : '再生範囲を WAV でダウンロード'}</small></span></button>
+          {activeTrack?.editStart !== null && activeTrack?.editStart !== undefined && activeTrack.editEnd !== null ? <div className="selection-fields"><label><span>再生 START · 秒</span><PlaybackTimeInput ariaLabel="再生開始位置（秒）" key={`start-${start}`} max={Math.max(0, end - MIN_CLIP_SECONDS)} min={0} onCommit={(value) => updateTime('start', value)} value={start} /></label><div className="field-rule" /><label><span>再生 END · 秒</span><PlaybackTimeInput ariaLabel="再生終了位置（秒）" key={`end-${end}`} max={duration} min={start + MIN_CLIP_SECONDS} onCommit={(value) => updateTime('end', value)} value={end} /></label><div className="field-rule" /><label><span>再生 LENGTH</span><strong>{formatTime(end - start)}</strong></label></div> : <div className="selection-fields"><label><span>再生範囲</span><strong>未選択（全体）</strong></label></div>}
+          <label className="export-selection"><input checked={exportSelectionOnly} disabled={activeTrack?.editStart === null} onChange={(event) => setExportSelectionOnly(event.target.checked)} type="checkbox" /> <span>選択範囲のみを保存</span></label>
+          <button className="download-button" disabled={isExporting || !activeTrack} onClick={() => void download()} type="button"><Icon name="download" /><span>{isExporting ? '処理中…' : '選択トラックを保存'}<small>{exportSelectionOnly && activeTrack?.editStart !== null ? '選択範囲を WAV でダウンロード' : 'トラック全体を WAV でダウンロード'}</small></span></button>
         </div>
       </div>{error && <p className="error">{error}</p>}
     </section>}
